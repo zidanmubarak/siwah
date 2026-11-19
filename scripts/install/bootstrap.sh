@@ -73,6 +73,10 @@ needs_clone=0
 if [ -d "$SOURCE/.git" ]; then
   step "Updating $SOURCE"
   "$GIT" -C "$SOURCE" fetch --tags --prune origin
+  "$GIT" -C "$SOURCE" rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1 || \
+    fail "Remote branch origin/$BRANCH was not found. Set SIWAH_BRANCH or SIWAH_REPO_URL."
+  "$GIT" -C "$SOURCE" merge-base HEAD "origin/$BRANCH" >/dev/null 2>&1 || \
+    fail "$SOURCE has unrelated history, most likely from the pre-public repository. Move it aside or set SIWAH_SOURCE to a new directory, then rerun."
   "$GIT" -C "$SOURCE" merge --ff-only "origin/$BRANCH"
 else
   if [ -e "$SOURCE" ]; then

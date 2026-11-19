@@ -108,6 +108,14 @@ if (Test-Path (Join-Path $Source ".git")) {
     Write-Step "Updating $Source"
     & $Git -C $Source fetch --tags --prune origin
     if ($LASTEXITCODE -ne 0) { throw "Could not fetch $Repo. Check your network or git credentials." }
+    & $Git -C $Source rev-parse --verify "origin/$Branch" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Remote branch origin/$Branch was not found. Set SIWAH_BRANCH or SIWAH_REPO_URL."
+    }
+    & $Git -C $Source merge-base HEAD "origin/$Branch" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Source has unrelated history, most likely from the pre-public repository. Move it aside (or set SIWAH_SOURCE to a new directory) and rerun."
+    }
     & $Git -C $Source merge --ff-only "origin/$Branch"
     if ($LASTEXITCODE -ne 0) { throw "Could not fast-forward $Source. Commit or stash local changes first." }
 }
