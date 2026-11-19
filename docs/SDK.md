@@ -204,7 +204,7 @@ If your editor needs any of those, use the daemon API instead.
 ## Versioning
 
 The application version and the daemon protocol version are independent. At
-siwah 1.0.0 the daemon protocol is `0.1`. Within that minor, fields and events are
+siwah 1.0.1 the daemon protocol is `0.1`. Within that minor, fields and events are
 added compatibly; existing meanings are not repurposed. Clients should ignore
 unknown event types and optional fields, and should reject an unsupported
 protocol version.

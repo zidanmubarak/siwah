@@ -3,7 +3,7 @@
 This page is for maintainers. Releases are explicit: the build script never
 publishes, and no release is rebuilt or retagged after publication.
 
-The 1.0.0 release uses this order:
+The 1.0.1 release uses this order:
 
 1. source bootstrap (primary install);
 2. TestPyPI upload for package verification;
@@ -85,10 +85,10 @@ does not contain the TUI binary; verify `--ui plain` works without it.
 
 ```bash
 git add -A
-git commit -m "release: siwah 1.0.0"
-git tag -a v1.0.0 -m "siwah 1.0.0"
+git commit -m "release: siwah 1.0.1"
+git tag -a v1.0.1 -m "siwah 1.0.1"
 git push origin main
-git push origin v1.0.0
+git push origin v1.0.1
 ```
 
 The update checker reads `pyproject.toml` on `origin/main` and falls back to
@@ -125,10 +125,10 @@ binary, `SHA256SUMS`, `install.ps1`, `install.sh`, and a short README.
 ## GitHub Release
 
 ```bash
-gh release create v1.0.0 \
-  --title "siwah 1.0.0" \
+gh release create v1.0.1 \
+  --title "siwah 1.0.1" \
   --notes-file CHANGELOG.md \
-  dist/siwah-1.0.0-py3-none-any.whl \
+  dist/siwah-1.0.1-py3-none-any.whl \
   dist/siwah-tui-windows-amd64.exe \
   dist/siwah-tui-linux-x86_64 \
   dist/siwah-tui-darwin-arm64 \
@@ -143,7 +143,7 @@ keep the release notes honest about known limitations.
 Upload the wheel to TestPyPI first:
 
 ```bash
-uvx twine upload --repository testpypi dist/siwah-1.0.0-py3-none-any.whl
+uvx twine upload --repository testpypi dist/siwah-1.0.1-py3-none-any.whl
 ```
 
 Use `TWINE_USERNAME=__token__` and a TestPyPI token in `TWINE_PASSWORD` from a
@@ -157,7 +157,7 @@ uv venv .tmp-testpypi --clear
 uv pip install --python .tmp-testpypi/Scripts/python.exe \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  "siwah==1.0.0"
+  "siwah==1.0.1"
 .tmp-testpypi/Scripts/siwah.exe --version
 .tmp-testpypi/Scripts/siwah.exe run "Reply with OK" --ui plain --model <provider>/<model-id>
 ```

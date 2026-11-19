@@ -60,7 +60,7 @@ reasoning capabilities come from the provider's live models endpoint.
 
 ## Providers
 
-A provider is configuration, not code. In 1.0.0 the implemented adapter family is
+A provider is configuration, not code. In 1.0.1 the implemented adapter family is
 `openai_chat`, which covers OpenAI Chat Completions-compatible endpoints.
 Other API family names are rejected at startup.
 
@@ -80,7 +80,7 @@ connect_timeout_s = 15
 
 | Field | Default | Meaning |
 |---|---|---|
-| `api` | `openai_chat` | Adapter family. Only `openai_chat` is implemented in 1.0.0. |
+| `api` | `openai_chat` | Adapter family. Only `openai_chat` is implemented in 1.0.1. |
 | `base_url` | required | Base URL for chat completions; trailing slashes are stripped. |
 | `models_url` | `null` | Models catalog endpoint. Without it, the provider cannot be listed or probed. |
 | `auth.scheme` | `bearer` | `bearer` sends `Authorization: Bearer <key>`; `none` sends no auth. |

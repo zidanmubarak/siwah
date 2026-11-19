@@ -68,9 +68,9 @@ install can show an update notice but cannot apply it.
 
 ### TestPyPI verification
 
-The 1.0.0 wheel is also uploaded to TestPyPI to verify the packaged build. It is
-not the recommended install. See [Releasing](RELEASING.md) for the verification
-steps.
+The 1.0.1 wheel is published to PyPI and also verified on TestPyPI. It is not
+the recommended install when you want `/update` to fast-forward a checkout. See
+[Releasing](RELEASING.md) for the verification steps.
 
 ## First run
 

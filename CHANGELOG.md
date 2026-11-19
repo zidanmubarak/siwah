@@ -3,6 +3,23 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [1.0.1] — 2026-11-19
+
+Patch release for the public install and release pipeline.
+
+### Fixed
+
+- The Windows and Unix bootstraps detect a pre-public checkout with unrelated
+  history and print a clear migration message instead of a raw fast-forward
+  error.
+- Release checksum generation no longer includes `SHA256SUMS` in its own hash
+  list.
+
+### Changed
+
+- The README terminal preview inlines SVG text styling so it renders
+  consistently on GitHub and image proxies.
+
 ## [1.0.0] — 2026-11-19
 
 First public release.
