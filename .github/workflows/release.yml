@@ -56,6 +56,9 @@ jobs:
       - name: Write checksums
         run: |
           cd dist
+          # Each matrix job uploads its own SHA256SUMS; remove the merged copy
+          # first so the glob cannot hash the file it is about to replace.
+          rm -f SHA256SUMS
           sha256sum * > SHA256SUMS
 
       - name: Create GitHub release
