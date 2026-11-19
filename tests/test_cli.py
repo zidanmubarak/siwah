@@ -1,0 +1,233 @@
+from __future__ import annotations
+
+import json
+import os
+import socket
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from siwah.cli import main as cli_main
+from siwah.cli.main import app
+from siwah.cli.plain_ui import PlainRenderer
+from siwah.config import AuthConfig, Config, ProviderConfig, RolesConfig
+from siwah.version import __version__
+
+
+def test_version_and_openapi():
+    runner = CliRunner()
+    version = runner.invoke(app, ["--version"])
+    assert version.exit_code == 0
+    assert f"siwah {__version__}" in version.stdout
+
+    schema = runner.invoke(app, ["openapi"])
+    assert schema.exit_code == 0
+    parsed = json.loads(schema.stdout)
+    assert parsed["openapi"].startswith("3.")
+    assert parsed["info"]["version"] == __version__
+    assert "/v1/sessions" in parsed["paths"]
+
+
+def test_pick_free_port_avoids_busy_preferred_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy:
+        busy.bind(("127.0.0.1", 0))
+        preferred = int(busy.getsockname()[1])
+        port, fallback = cli_main._pick_free_port("127.0.0.1", preferred)
+        assert fallback is True
+        assert port != preferred
+    port, fallback = cli_main._pick_free_port("127.0.0.1", 0)
+    assert fallback is False
+    assert port > 0
+
+
+def test_find_tui_binary_prefers_explicit_path(tmp_path: Path, monkeypatch):
+    binary = tmp_path / "custom-tui.exe"
+    binary.write_text("binary", encoding="utf-8")
+    monkeypatch.setenv("SIWAH_TUI_BINARY", str(binary))
+    assert cli_main._find_tui_binary() == binary
+
+
+def test_find_tui_binary_uses_siwah_home_bin(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("SIWAH_TUI_BINARY", raising=False)
+    home = tmp_path / "home"
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True)
+    binary = bin_dir / ("siwah-tui.exe" if os.name == "nt" else "siwah-tui")
+    binary.write_text("binary", encoding="utf-8")
+    monkeypatch.setenv("SIWAH_HOME", str(home))
+    assert cli_main._find_tui_binary() == binary
+
+
+def test_promote_tui_binary_activates_a_staged_build(tmp_path: Path, monkeypatch):
+    home = tmp_path / "home"
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True)
+    name = cli_main._tui_binary_name()
+    target = bin_dir / name
+    staged = bin_dir / f"{name}.next"
+    target.write_text("old", encoding="utf-8")
+    staged.write_text("new", encoding="utf-8")
+    monkeypatch.setenv("SIWAH_HOME", str(home))
+
+    cli_main._promote_tui_binary()
+
+    assert target.read_text(encoding="utf-8") == "new"
+    assert not staged.exists()
+
+
+def test_doctor_with_empty_home_creates_default_catalog(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SIWAH_CONFIG", raising=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "opencode-go" in result.stdout
+    assert "openai" in result.stdout
+    assert "credential=missing" in result.stdout
+    assert "state db: ok" in result.stdout
+
+
+def test_auth_login_and_status(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[providers.mock]
+api = "openai_chat"
+base_url = "https://mock.invalid/v1"
+auth = { scheme = "bearer", env = "MOCK_API_KEY" }
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SIWAH_CONFIG", str(config))
+    runner = CliRunner()
+    result = runner.invoke(app, ["auth", "login", "mock"], input="secret-key\n")
+    assert result.exit_code == 0, result.output
+    assert "Saved credential" in result.stdout
+
+    status = runner.invoke(app, ["auth", "status"])
+    assert status.exit_code == 0
+    assert "mock:" in status.stdout
+    assert "secret-key" not in status.stdout
+
+
+def test_run_requires_model(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SIWAH_CONFIG", raising=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "hello"])
+    assert result.exit_code == 2
+    assert "No model configured" in result.stdout or "No model configured" in result.output
+
+
+def test_plain_renderer_survives_ascii_only_stream():
+    class AsciiStream:
+        encoding = "ascii"
+
+        def __init__(self) -> None:
+            self.value = ""
+
+        def write(self, value: str) -> None:
+            value.encode(self.encoding)  # raises for non-ascii, like a cp1252 console
+            self.value += value
+
+        def flush(self) -> None:
+            return None
+
+    stream = AsciiStream()
+    PlainRenderer()._write("fixed → done", stream=stream)  # type: ignore[arg-type]
+    assert "fixed" in stream.value
+    assert "done" in stream.value
+
+
+def test_run_keyboard_interrupt_exits_130(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = Config(
+        providers={
+            "mock": ProviderConfig(
+                api="openai_chat",
+                base_url="https://mock.invalid/v1",
+                auth=AuthConfig(scheme="none"),
+            )
+        },
+        roles=RolesConfig(main="mock/model-a"),
+    )
+    monkeypatch.setattr(cli_main, "load_config", lambda: config)
+
+    class InterruptingLoop:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def run(self, *_args, **_kwargs):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_main, "AgentLoop", InterruptingLoop)
+    result = CliRunner().invoke(
+        app,
+        ["run", "hello", "--cwd", str(tmp_path), "--model", "mock/model-a"],
+    )
+    assert result.exit_code == 130
+    assert "Aborted" in result.output
+
+
+def test_models_list_explains_missing_credentials(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SIWAH_CONFIG", raising=False)
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["models", "list"])
+    assert result.exit_code == 2
+    assert "credential missing" in result.stdout
+    assert "opencode-go" in result.stdout
+    assert "openai" in result.stdout
+
+
+def test_skills_and_memory_commands(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SIWAH_CONFIG", raising=False)
+    from siwah.harness.memory import write_memory
+    from siwah.harness.skills import create_skill
+
+    create_skill("cli-skill", "A CLI skill", "Use this skill from the CLI.")
+    write_memory(tmp_path, target="user", content="CLI memory content.")
+    runner = CliRunner()
+    listed = runner.invoke(app, ["skills", "list"])
+    assert listed.exit_code == 0
+    assert "cli-skill" in listed.stdout
+    viewed = runner.invoke(app, ["skills", "view", "cli-skill"])
+    assert viewed.exit_code == 0
+    assert "Use this skill from the CLI." in viewed.stdout
+    memory = runner.invoke(app, ["memory", "show", "--cwd", str(tmp_path)])
+    assert memory.exit_code == 0
+    assert "CLI memory content." in memory.stdout
+
+
+def test_run_ultra_requires_a_clean_git_workspace(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = Config(
+        providers={
+            "mock": ProviderConfig(
+                api="openai_chat",
+                base_url="https://mock.invalid/v1",
+                auth=AuthConfig(scheme="none"),
+            )
+        },
+        roles=RolesConfig(main="mock/model-a"),
+    )
+    monkeypatch.setattr(cli_main, "load_config", lambda: config)
+    result = CliRunner().invoke(
+        app,
+        [
+            "run",
+            "hello",
+            "--cwd",
+            str(tmp_path),
+            "--model",
+            "mock/model-a",
+            "--ultra",
+            "2",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "best-of-n: rejected" in result.output

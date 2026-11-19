@@ -1,0 +1,28 @@
+{
+  "id": "golden-feature-03",
+  "category": "feature",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Implement `initials` in features.py so the check passes.",
+  "files": {
+    "features.py": "def initials(name):\n    return name\n",
+    "check.py": "from features import initials\n\nassert initials('Ada Lovelace') == 'AL'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "features.py",
+          "old_string": "return name",
+          "new_string": "return ''.join(part[0].upper() for part in name.split())"
+        }
+      }
+    ],
+    "final": "Implemented."
+  }
+}

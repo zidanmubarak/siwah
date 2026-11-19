@@ -1,0 +1,28 @@
+{
+  "id": "golden-feature-02",
+  "category": "feature",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Implement `shout` in features.py so the check passes.",
+  "files": {
+    "features.py": "def shout(value):\n    return value\n",
+    "check.py": "from features import shout\n\nassert shout('hi') == 'HI!'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "features.py",
+          "old_string": "return value",
+          "new_string": "return value.upper() + '!'"
+        }
+      }
+    ],
+    "final": "Implemented."
+  }
+}

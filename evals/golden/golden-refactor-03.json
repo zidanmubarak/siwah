@@ -1,0 +1,28 @@
+{
+  "id": "golden-refactor-03",
+  "category": "refactor",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Refactor greeting to use the new name; keep behavior.",
+  "files": {
+    "greet.py": "def greet(name):\n    return 'hello ' + name\n",
+    "check.py": "from greet import greet\n\nassert greet('Ada') == 'hello Ada'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "greet.py",
+          "old_string": "return 'hello ' + name",
+          "new_string": "return 'hello ' + name.strip()"
+        }
+      }
+    ],
+    "final": "Refactored."
+  }
+}

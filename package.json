@@ -1,0 +1,12 @@
+{
+  "name": "siwah",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "ui/tui"
+  ],
+  "scripts": {
+    "generate": "uv run siwah openapi > ui/tui/openapi.json && cd ui/tui && bun run generate:types",
+    "check:types": "cd ui/tui && bun run check:types"
+  }
+}

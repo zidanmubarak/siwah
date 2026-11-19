@@ -1,0 +1,26 @@
+{
+  "id": "golden-tests-03",
+  "category": "tests",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Write a pytest file `test_palindrome.py` for `is_palindrome`; do not modify the source.",
+  "files": {
+    "stats.py": "def is_palindrome(value):\n    return value == value[::-1]\n"
+  },
+  "protected": [
+    "stats.py"
+  ],
+  "check": "{python} -m pytest -q test_palindrome.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "write_file",
+        "arguments": {
+          "path": "test_palindrome.py",
+          "content": "from stats import is_palindrome\n\n\ndef test_palindrome():\n    assert is_palindrome('ada')\n"
+        }
+      }
+    ],
+    "final": "Added the test."
+  }
+}

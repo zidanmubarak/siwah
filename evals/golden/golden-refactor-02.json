@@ -1,0 +1,28 @@
+{
+  "id": "golden-refactor-02",
+  "category": "refactor",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Rename parse_value to parse in parser.py; keep the check green.",
+  "files": {
+    "parser.py": "def parse_value(value):\n    return value.strip()\n",
+    "check.py": "from parser import parse\n\nassert parse(' x ') == 'x'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "parser.py",
+          "old_string": "def parse_value(",
+          "new_string": "def parse("
+        }
+      }
+    ],
+    "final": "Renamed."
+  }
+}

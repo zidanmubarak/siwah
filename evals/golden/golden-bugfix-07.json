@@ -1,0 +1,28 @@
+{
+  "id": "golden-bugfix-07",
+  "category": "bugfix",
+  "language": "python",
+  "difficulty": "easy",
+  "prompt": "Fix `is_even` in math_utils.py so the check passes.",
+  "files": {
+    "math_utils.py": "def is_even(value):\n    return value % 2 == 1\n",
+    "check.py": "from math_utils import is_even\n\nassert is_even(4) == True\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return value % 2 == 1",
+          "new_string": "return value % 2 == 0"
+        }
+      }
+    ],
+    "final": "Fixed it."
+  }
+}

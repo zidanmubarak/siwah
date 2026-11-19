@@ -1,0 +1,4511 @@
+{
+  "components": {
+    "schemas": {
+      "AuthLoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "minLength": 1,
+            "title": "Api Key",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "api_key"
+        ],
+        "title": "AuthLoginRequest",
+        "type": "object"
+      },
+      "AuthProviderStatus": {
+        "properties": {
+          "env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "env_set": {
+            "default": false,
+            "title": "Env Set",
+            "type": "boolean"
+          },
+          "file_set": {
+            "default": false,
+            "title": "File Set",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "scheme": {
+            "default": "bearer",
+            "title": "Scheme",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "AuthProviderStatus",
+        "type": "object"
+      },
+      "AuthStatusResponse": {
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/AuthProviderStatus"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "title": "AuthStatusResponse",
+        "type": "object"
+      },
+      "Capabilities": {
+        "properties": {
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "permission_modes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permission Modes",
+            "type": "array"
+          },
+          "sse_resume": {
+            "default": true,
+            "title": "Sse Resume",
+            "type": "boolean"
+          }
+        },
+        "title": "Capabilities",
+        "type": "object"
+      },
+      "CheckpointCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "title": "CheckpointCreateRequest",
+        "type": "object"
+      },
+      "CheckpointListResponse": {
+        "properties": {
+          "checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/CheckpointSummary"
+            },
+            "title": "Checkpoints",
+            "type": "array"
+          }
+        },
+        "title": "CheckpointListResponse",
+        "type": "object"
+      },
+      "CheckpointSummary": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "required": [
+          "id",
+          "created_at"
+        ],
+        "title": "CheckpointSummary",
+        "type": "object"
+      },
+      "CommandInfo": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "body"
+        ],
+        "title": "CommandInfo",
+        "type": "object"
+      },
+      "CommandListResponse": {
+        "properties": {
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/CommandInfo"
+            },
+            "title": "Commands",
+            "type": "array"
+          }
+        },
+        "title": "CommandListResponse",
+        "type": "object"
+      },
+      "CompactResponse": {
+        "properties": {
+          "after_tokens": {
+            "title": "After Tokens",
+            "type": "integer"
+          },
+          "before_tokens": {
+            "title": "Before Tokens",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "through_seq": {
+            "title": "Through Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "summary",
+          "through_seq",
+          "before_tokens",
+          "after_tokens"
+        ],
+        "title": "CompactResponse",
+        "type": "object"
+      },
+      "CreateSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "mode": {
+            "default": "build",
+            "enum": [
+              "build",
+              "plan"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "EffortRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          }
+        },
+        "title": "EffortRequest",
+        "type": "object"
+      },
+      "EffortResponse": {
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          }
+        },
+        "title": "EffortResponse",
+        "type": "object"
+      },
+      "EventEnvelope": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "default": 1,
+            "title": "V",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "type",
+          "session_id",
+          "ts"
+        ],
+        "title": "EventEnvelope",
+        "type": "object"
+      },
+      "EventSchemaResponse": {
+        "description": "Schema introspection: the event envelope shape used by the SSE stream.",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventEnvelope"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "title": "EventSchemaResponse",
+        "type": "object"
+      },
+      "EvolutionPauseRequest": {
+        "properties": {
+          "paused": {
+            "default": true,
+            "title": "Paused",
+            "type": "boolean"
+          }
+        },
+        "title": "EvolutionPauseRequest",
+        "type": "object"
+      },
+      "EvolutionRollbackRequest": {
+        "properties": {
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "title": "EvolutionRollbackRequest",
+        "type": "object"
+      },
+      "EvolutionRollbackResponse": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "title": "EvolutionRollbackResponse",
+        "type": "object"
+      },
+      "EvolutionSummary": {
+        "properties": {
+          "events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "paused": {
+            "default": false,
+            "title": "Paused",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "idle",
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "title": "EvolutionSummary",
+        "type": "object"
+      },
+      "FileListResponse": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "title": "FileListResponse",
+        "type": "object"
+      },
+      "ForkSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "ForkSessionRequest",
+        "type": "object"
+      },
+      "ForkSessionResponse": {
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/SessionResponse"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "title": "ForkSessionResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InitMemoryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "cwd": {
+            "title": "Cwd",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cwd"
+        ],
+        "title": "InitMemoryRequest",
+        "type": "object"
+      },
+      "InitMemoryResponse": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "created",
+          "content"
+        ],
+        "title": "InitMemoryResponse",
+        "type": "object"
+      },
+      "McpServerStatus": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          },
+          "valid": {
+            "default": true,
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "transport",
+          "status"
+        ],
+        "title": "McpServerStatus",
+        "type": "object"
+      },
+      "McpStatusResponse": {
+        "properties": {
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/McpServerStatus"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "title": "McpStatusResponse",
+        "type": "object"
+      },
+      "MemoryFileInfo": {
+        "properties": {
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          },
+          "exists": {
+            "default": false,
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "MemoryFileInfo",
+        "type": "object"
+      },
+      "MemoryResponse": {
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/MemoryFileInfo"
+          },
+          "quick": {
+            "$ref": "#/components/schemas/MemoryFileInfo"
+          },
+          "user": {
+            "$ref": "#/components/schemas/MemoryFileInfo"
+          }
+        },
+        "required": [
+          "user",
+          "project",
+          "quick"
+        ],
+        "title": "MemoryResponse",
+        "type": "object"
+      },
+      "MessageAttachment": {
+        "properties": {
+          "data": {
+            "maxLength": 16000000,
+            "title": "Data",
+            "type": "string"
+          },
+          "mime": {
+            "title": "Mime",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "mime",
+          "data"
+        ],
+        "title": "MessageAttachment",
+        "type": "object"
+      },
+      "MessageDiff": {
+        "properties": {
+          "patch": {
+            "title": "Patch",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "patch"
+        ],
+        "title": "MessageDiff",
+        "type": "object"
+      },
+      "MessageListResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageView"
+            },
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "MessageListResponse",
+        "type": "object"
+      },
+      "MessageView": {
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/MessageAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "diffs": {
+            "items": {
+              "$ref": "#/components/schemas/MessageDiff"
+            },
+            "title": "Diffs",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            },
+            "title": "Tool Calls",
+            "type": "array"
+          },
+          "tool_edited": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Tool Edited",
+            "type": "object"
+          },
+          "tool_outputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tool Outputs",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "role",
+          "created_at"
+        ],
+        "title": "MessageView",
+        "type": "object"
+      },
+      "MetaResponse": {
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "daemon_started_at": {
+            "title": "Daemon Started At",
+            "type": "string"
+          },
+          "default_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Effort"
+          },
+          "name": {
+            "default": "siwah",
+            "title": "Name",
+            "type": "string"
+          },
+          "protocol": {
+            "default": "0.1",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "daemon_started_at",
+          "capabilities"
+        ],
+        "title": "MetaResponse",
+        "type": "object"
+      },
+      "ModelCatalogResponse": {
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModels"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "roles": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "object"
+          }
+        },
+        "title": "ModelCatalogResponse",
+        "type": "object"
+      },
+      "ModelSummary": {
+        "properties": {
+          "context_window": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Window"
+          },
+          "efforts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Efforts",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "max_output": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Output"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "native_api": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Api"
+          },
+          "pricing": {
+            "additionalProperties": true,
+            "title": "Pricing",
+            "type": "object"
+          },
+          "privacy": {
+            "additionalProperties": true,
+            "title": "Privacy",
+            "type": "object"
+          },
+          "supports_reasoning": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supports Reasoning"
+          },
+          "supports_tools": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supports Tools"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ModelSummary",
+        "type": "object"
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "title": "OkResponse",
+        "type": "object"
+      },
+      "PermissionDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "once",
+              "session",
+              "always",
+              "deny"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "PermissionDecisionRequest",
+        "type": "object"
+      },
+      "PermissionDecisionResponse": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "decision",
+          "accepted"
+        ],
+        "title": "PermissionDecisionResponse",
+        "type": "object"
+      },
+      "PermissionModeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "ask",
+              "auto-edit",
+              "yolo"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "PermissionModeRequest",
+        "type": "object"
+      },
+      "PermissionModeResponse": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "PermissionModeResponse",
+        "type": "object"
+      },
+      "PlanResponse": {
+        "properties": {
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          },
+          "exists": {
+            "default": false,
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "PlanResponse",
+        "type": "object"
+      },
+      "ProviderModels": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelSummary"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "ProviderModels",
+        "type": "object"
+      },
+      "QuickNoteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "QuickNoteRequest",
+        "type": "object"
+      },
+      "QuickNoteResponse": {
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "changed"
+        ],
+        "title": "QuickNoteResponse",
+        "type": "object"
+      },
+      "RewindRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "steps": {
+            "default": 1,
+            "title": "Steps",
+            "type": "integer"
+          }
+        },
+        "title": "RewindRequest",
+        "type": "object"
+      },
+      "RewindResponse": {
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/CheckpointSummary"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checkpoint"
+        ],
+        "title": "RewindResponse",
+        "type": "object"
+      },
+      "SendMessageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/MessageAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "title": "SendMessageRequest",
+        "type": "object"
+      },
+      "SendMessageResponse": {
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "running",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "run_id",
+          "event_id"
+        ],
+        "title": "SendMessageResponse",
+        "type": "object"
+      },
+      "SessionListResponse": {
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionResponse"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "title": "SessionListResponse",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "cwd": {
+            "title": "Cwd",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_event_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event Seq"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "cwd",
+          "mode",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
+      },
+      "ShellRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "default": false,
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "command": {
+            "minLength": 1,
+            "title": "Command",
+            "type": "string"
+          },
+          "timeout_s": {
+            "default": 120.0,
+            "title": "Timeout S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "ShellRequest",
+        "type": "object"
+      },
+      "ShellResponse": {
+        "properties": {
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "output": {
+            "default": "",
+            "title": "Output",
+            "type": "string"
+          },
+          "permission_required": {
+            "default": false,
+            "title": "Permission Required",
+            "type": "boolean"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "ShellResponse",
+        "type": "object"
+      },
+      "SkillContentResponse": {
+        "properties": {
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SkillContentResponse",
+        "type": "object"
+      },
+      "SkillInfo": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SkillInfo",
+        "type": "object"
+      },
+      "SkillListResponse": {
+        "properties": {
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillInfo"
+            },
+            "title": "Skills",
+            "type": "array"
+          }
+        },
+        "title": "SkillListResponse",
+        "type": "object"
+      },
+      "ToolCall": {
+        "properties": {
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "arguments_valid": {
+            "default": true,
+            "title": "Arguments Valid",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "raw_arguments": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Arguments"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ToolCall",
+        "type": "object"
+      },
+      "ToolOutputResponse": {
+        "properties": {
+          "handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Handle"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output": {
+            "default": "",
+            "title": "Output",
+            "type": "string"
+          },
+          "tool_call_id": {
+            "title": "Tool Call Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_call_id",
+          "name"
+        ],
+        "title": "ToolOutputResponse",
+        "type": "object"
+      },
+      "UpdateApplyResponse": {
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "from_version": {
+            "title": "From Version",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "restart_required": {
+            "default": false,
+            "title": "Restart Required",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "to_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Version"
+          }
+        },
+        "required": [
+          "ok",
+          "from_version"
+        ],
+        "title": "UpdateApplyResponse",
+        "type": "object"
+      },
+      "UpdateSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "build",
+                  "plan"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "UpdateSessionRequest",
+        "type": "object"
+      },
+      "UpdateStatusResponse": {
+        "properties": {
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "can_apply": {
+            "default": false,
+            "title": "Can Apply",
+            "type": "boolean"
+          },
+          "checked_at": {
+            "default": "",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "commits_behind": {
+            "default": 0,
+            "title": "Commits Behind",
+            "type": "integer"
+          },
+          "current": {
+            "title": "Current",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "current"
+        ],
+        "title": "UpdateStatusResponse",
+        "type": "object"
+      },
+      "UsageResponse": {
+        "properties": {
+          "allowance": {
+            "default": 0.0,
+            "title": "Allowance",
+            "type": "number"
+          },
+          "cache_read_tokens": {
+            "default": 0,
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
+          "cache_write_tokens": {
+            "default": 0,
+            "title": "Cache Write Tokens",
+            "type": "integer"
+          },
+          "context_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Percent"
+          },
+          "context_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Tokens"
+          },
+          "context_window": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Window"
+          },
+          "cost": {
+            "default": 0.0,
+            "title": "Cost",
+            "type": "number"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "list_cost": {
+            "default": 0.0,
+            "title": "List Cost",
+            "type": "number"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "reasoning_tokens": {
+            "default": 0,
+            "title": "Reasoning Tokens",
+            "type": "integer"
+          },
+          "steps": {
+            "default": 0,
+            "title": "Steps",
+            "type": "integer"
+          }
+        },
+        "title": "UsageResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Local HTTP + SSE protocol for siwah clients.",
+    "title": "siwah",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/agent/effort": {
+      "post": {
+        "operationId": "set_agent_effort_v1_agent_effort_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EffortRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffortResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Agent Effort",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "auth_login_v1_auth_login_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Auth Login",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/auth/status": {
+      "get": {
+        "operationId": "auth_status_v1_auth_status_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Auth Status",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/commands": {
+      "get": {
+        "operationId": "commands_v1_commands_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cwd",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cwd"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Commands",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/events/schema": {
+      "get": {
+        "operationId": "event_schema_v1_events_schema_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventSchemaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Event Schema",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/evolution": {
+      "get": {
+        "operationId": "evolution_v1_evolution_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvolutionSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evolution",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/evolution/pause": {
+      "post": {
+        "operationId": "evolution_pause_v1_evolution_pause_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvolutionPauseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evolution Pause",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/evolution/rollback": {
+      "post": {
+        "operationId": "evolution_rollback_v1_evolution_rollback_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvolutionRollbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvolutionRollbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evolution Rollback",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/files": {
+      "get": {
+        "operationId": "files_v1_files_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cwd",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cwd"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Files",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/harness/init": {
+      "post": {
+        "operationId": "harness_init_v1_harness_init_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitMemoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitMemoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harness Init",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/harness/memory": {
+      "get": {
+        "operationId": "harness_memory_v1_harness_memory_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cwd",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cwd"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harness Memory",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/harness/note": {
+      "post": {
+        "operationId": "harness_note_v1_harness_note_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuickNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuickNoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harness Note",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/harness/skills": {
+      "get": {
+        "operationId": "harness_skills_v1_harness_skills_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cwd",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cwd"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harness Skills",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/harness/skills/{name}": {
+      "get": {
+        "operationId": "harness_skill_v1_harness_skills__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cwd",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cwd"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillContentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harness Skill",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "health_v1_health_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/mcp": {
+      "get": {
+        "operationId": "mcp_status_v1_mcp_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Refresh",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mcp Status",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/mcp/{name}/restart": {
+      "post": {
+        "operationId": "restart_mcp_v1_mcp__name__restart_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpServerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restart Mcp",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/meta": {
+      "get": {
+        "operationId": "meta_v1_meta_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Meta",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "models_v1_models_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Models",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/permissions/mode": {
+      "get": {
+        "operationId": "get_permission_mode_v1_permissions_mode_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionModeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Permission Mode",
+        "tags": [
+          "siwah"
+        ]
+      },
+      "post": {
+        "operationId": "set_permission_mode_v1_permissions_mode_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionModeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Permission Mode",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/providers/defaults": {
+      "post": {
+        "operationId": "provider_defaults_v1_providers_defaults_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provider Defaults",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions": {
+      "get": {
+        "operationId": "list_sessions_v1_sessions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sessions",
+        "tags": [
+          "siwah"
+        ]
+      },
+      "post": {
+        "operationId": "create_session_v1_sessions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Session",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_v1_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "siwah"
+        ]
+      },
+      "patch": {
+        "operationId": "update_session_v1_sessions__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Session",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/abort": {
+      "post": {
+        "operationId": "abort_v1_sessions__session_id__abort_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abort",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/checkpoints": {
+      "get": {
+        "operationId": "checkpoints_v1_sessions__session_id__checkpoints_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Checkpoints",
+        "tags": [
+          "siwah"
+        ]
+      },
+      "post": {
+        "operationId": "create_checkpoint_v1_sessions__session_id__checkpoints_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckpointCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Checkpoint",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/compact": {
+      "post": {
+        "operationId": "compact_v1_sessions__session_id__compact_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compact",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/events": {
+      "get": {
+        "operationId": "events_v1_sessions__session_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Events",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/fork": {
+      "post": {
+        "operationId": "fork_session_v1_sessions__session_id__fork_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForkSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fork Session",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/messages": {
+      "get": {
+        "operationId": "messages_v1_sessions__session_id__messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Messages",
+        "tags": [
+          "siwah"
+        ]
+      },
+      "post": {
+        "operationId": "send_message_v1_sessions__session_id__messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendMessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Message",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/permissions/{request_id}": {
+      "post": {
+        "operationId": "permission_decision_v1_sessions__session_id__permissions__request_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Permission Decision",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/plan": {
+      "get": {
+        "operationId": "plan_v1_sessions__session_id__plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/rewind": {
+      "post": {
+        "operationId": "rewind_v1_sessions__session_id__rewind_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RewindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewindResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rewind",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/shell": {
+      "post": {
+        "operationId": "shell_v1_sessions__session_id__shell_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShellRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShellResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Shell",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/tool_calls/{tool_call_id}": {
+      "get": {
+        "operationId": "tool_output_v1_sessions__session_id__tool_calls__tool_call_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tool_call_id",
+            "required": true,
+            "schema": {
+              "title": "Tool Call Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolOutputResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tool Output",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/usage": {
+      "get": {
+        "operationId": "usage_v1_sessions__session_id__usage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/update": {
+      "get": {
+        "operationId": "update_status_v1_update_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Refresh",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Status",
+        "tags": [
+          "siwah"
+        ]
+      },
+      "post": {
+        "operationId": "update_apply_v1_update_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Apply",
+        "tags": [
+          "siwah"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Local protocol",
+      "name": "siwah"
+    }
+  ]
+}

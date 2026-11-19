@@ -1,0 +1,28 @@
+{
+  "id": "golden-ts-01",
+  "category": "bugfix",
+  "language": "typescript",
+  "difficulty": "easy",
+  "prompt": "Fix add in math.ts so check.ts passes.",
+  "files": {
+    "math.ts": "export function add(a: number, b: number) {\n  return a - b\n}\n",
+    "check.ts": "import { add } from './math'\nif (add(2, 3) !== 5) process.exit(1)\nconsole.log('ok')\n"
+  },
+  "protected": [
+    "check.ts"
+  ],
+  "check": "{bun} check.ts",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math.ts",
+          "old_string": "return a - b",
+          "new_string": "return a + b"
+        }
+      }
+    ],
+    "final": "Fixed."
+  }
+}

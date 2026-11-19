@@ -1,0 +1,26 @@
+{
+  "id": "golden-tests-01",
+  "category": "tests",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Write a pytest file `test_stats.py` for `mean`; do not modify the source.",
+  "files": {
+    "stats.py": "def mean(values):\n    return sum(values) / len(values)\n"
+  },
+  "protected": [
+    "stats.py"
+  ],
+  "check": "{python} -m pytest -q test_stats.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "write_file",
+        "arguments": {
+          "path": "test_stats.py",
+          "content": "from stats import mean\n\n\ndef test_mean():\n    assert mean([1, 2, 3]) == 2\n"
+        }
+      }
+    ],
+    "final": "Added the test."
+  }
+}

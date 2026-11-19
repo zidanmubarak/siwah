@@ -1,0 +1,167 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`welcome screen snapshot and status bar: welcome-100x32 1`] = `
+"     fix parser ×                                                                           ＋ new  
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                          ▄▄▄▄▄▄▄▄▄██▀                              
+                                       ███▄▄▄▄▄▄█████████████████▀▀                                 
+                                       █▀███████████████████▀▀▀                                     
+                                       ███████▀▀▀▀▀▀▀▀▀▀                                            
+                                    ██████   ▄▀▀▀ ▀ █   █  ▀▀▄ █                                    
+                                    ████      ▀▀▄ █ █▄▀▄█ ▄▀▀█ █▀▀▄                                 
+                                  ████████   ▀▀▀  ▀ ▀   ▀  ▀▀▀ ▀  ▀                                 
+                                                                                                    
+                                 a coding agent that learns with you                                
+                                                                                                    
+                                                                                                    
+                                Build something. Understand anything.                               
+                                                                                                    
+                                 /sessions  resume   /help  explore                                 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ › build ask                                            ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │                                                                                              │  
+  │ Ask siwah to change something…                                                               │  
+  │                                                                                              │  
+  │ mock/model-a off                                                               D:/work/siwah │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                    
+"
+`;
+
+exports[`transcript, tool card and diff snapshot: transcript-120x34 1`] = `
+"     fix parser ×                                                                                               ＋ new  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  │ › Fix the failing test in math_utils.py                                           │ TASKS                   1/2 ×   
+  │                                                                                   │ ━━━━━━ ────── 50%               
+                                                                                      │                                 
+                                                                                      │ ✓ read implementation           
+   ▸ reasoning                                                                        │ ◐ fix subtraction               
+   Plan                                                                               │                                 
+                                                                                      │                                 
+   Read the implementation and fix the subtraction bug.                               │                                 
+                                                                                      │                                 
+   │ read_file  math_utils.py                                                         │                                 
+   │                                                                                  │                                 
+   │      1  def add(a, b):                                                           │                                 
+   │      2      return a - b                                                         │                                 
+                                                                                      │                                 
+   │                                                                                  │                                 
+   │  math_utils.py                                                +1 -1 unified      │                                 
+   │  @@ -1,2 +1,2 @@                                                                 │                                 
+   │    1   1   def add(a, b):                                                        │                                 
+   │    2     -     return a - b                                                      │                                 
+   │        2 +     return a + b                                                      │                                 
+   │                                                                                  │                                 
+   └──────────────────────────────────────────────────────────────────────────────    │                                 
+                                                                                      │                                 
+                                                                                      │                                 
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ › build ask                                                                ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │                                                                                                                  │  
+  │ Ask siwah to change something…                                                                                   │  
+  │                                                                                                                  │  
+  │ mock/model-a off evo-0 idle                                                                        D:/work/siwah │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                        
+"
+`;
+
+exports[`permission dialog snapshot: permission-100x30 1`] = `
+"     fix parser ×                                                                           ＋ new  
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                         ◆━━━━━━━━━━━━━━━━◥                                         
+                                                siwah                                               
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ┌───────────────────────────────────────────────────────────────────────────────────────────────  
+  │ ! permission required bash [v] view full                                                        
+  │                                                                                                 
+  │  $ pytest -q                                                                                    
+  │                                                                                                 
+  │  [o] allow once   [s] allow session   [a] always allow   [d] deny + reason                      
+  └───────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                    
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ › build ask                                            ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │                                                                                              │  
+  │ Ask siwah to change something…                                                               │  
+  │                                                                                              │  
+  │ mock/model-a off                                                               D:/work/siwah │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
+  permission required                                                                               
+"
+`;
+
+exports[`large tool output is bounded inline: tool-inline-100x30 1`] = `
+"     fix parser ×                                                                           ＋ new  
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                    
+                                                                                                    
+   │ read_file  math_utils.py                                                                       
+   │                                                                                                
+   │  line 1                                                                                        
+   │  line 2                                                                                        
+   │  line 3                                                                                        
+   │  line 4                                                                                        
+   │ … 9996 more lines · click to expand                                                            
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ › build ask                                            ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │                                                                                              │  
+  │ Ask siwah to change something…                                                               │  
+  │                                                                                              │  
+  │ mock/model-a off                                                               D:/work/siwah │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                    
+"
+`;
+
+exports[`60-column layout stays usable: narrow-60x20 1`] = `
+"     fix parser ×                                   ＋ new  
+  ────────────────────────────────────────────────────────  
+   Plan                                                     
+                                                            
+   Apply the minimal fix.                                   
+                                                            
+   │ read_file  math_utils.py                               
+   │                                                        
+   │      1  def add(a, b):                                 
+   │      2      return a - b                               
+                                                            
+  ╭──────────────────────────────────────────────────────╮  
+  │ › build ask                                          │  
+  │ ctx 2k/100k 2% · 1.5k tok · $0.000429                │  
+  │                                                      │  
+  │ Ask siwah to change something…                       │  
+  │                                                      │  
+  │ mock/model-a off                       D:/work/siwah │  
+  ╰──────────────────────────────────────────────────────╯  
+                                                            
+"
+`;

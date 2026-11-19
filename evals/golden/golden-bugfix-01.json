@@ -1,0 +1,28 @@
+{
+  "id": "golden-bugfix-01",
+  "category": "bugfix",
+  "language": "python",
+  "difficulty": "easy",
+  "prompt": "Fix `add` in math_utils.py so the check passes.",
+  "files": {
+    "math_utils.py": "def add(a, b):\n    return a - b\n",
+    "check.py": "from math_utils import add\n\nassert add(2, 3) == 5\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return a - b",
+          "new_string": "return a + b"
+        }
+      }
+    ],
+    "final": "Fixed it."
+  }
+}

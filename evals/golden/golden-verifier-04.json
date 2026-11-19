@@ -1,0 +1,39 @@
+{
+  "id": "golden-verifier-04",
+  "category": "refactor",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Refactor `maximum` without breaking its behavior. Keep the tests green.",
+  "files": {
+    "math_utils.py": "def maximum(a, b):\n    return max(a, b)\n",
+    "check.py": "from math_utils import maximum\n\nassert maximum(2, 3) == 3\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "requires_verifier": true,
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return max(a, b)",
+          "new_string": "return min(a, b)"
+        }
+      }
+    ],
+    "repair_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return min(a, b)",
+          "new_string": "return max(a, b)"
+        }
+      }
+    ],
+    "final": "Behavior preserved."
+  }
+}

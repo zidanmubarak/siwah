@@ -1,0 +1,74 @@
+name: Feature request
+description: Propose a new capability or a behavior change.
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        siwah is intentionally small and local-first. Explain the problem before
+        the solution, and say whether the change affects the protocol,
+        permissions, the sandbox, or the evolution gate.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what is missing or painful today?
+      placeholder: I want to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want, including commands or config.
+      placeholder: Add a `siwah ...` option that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or simpler options did you try?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Agent loop or tools
+        - TUI or terminal behavior
+        - Providers or models
+        - Permissions or security
+        - Sandbox
+        - MCP, hooks, or jobs
+        - Evaluation
+        - Evolution
+        - CLI or protocol
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and risks
+      description: Does this require a protocol change, a protected-path change, a new dependency, or a new credential?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues and discussions.
+          required: true
+        - label: This request does not require exposing secrets or disabling a safety control.
+          required: true

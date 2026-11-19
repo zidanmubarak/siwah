@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="siwah-banner-title">
+  <title id="siwah-banner-title">siwah — a coding agent that learns with you</title>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#1C2532" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#d4a63a" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#d4a63a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="#15151b"/>
+  <rect width="1280" height="640" fill="url(#grid)" opacity="0.55"/>
+  <circle cx="330" cy="330" r="330" fill="url(#glow)"/>
+
+  <g transform="translate(40,150) scale(1.4)">
+    <g transform="translate(14,38) rotate(-10 128 128)">
+      <g fill="#15151b" stroke="#15151b" stroke-width="6" stroke-linejoin="round">
+        <path d="M 76 134 L 102 134 C 103 154 104 172 107 188 C 109 197 98 201 86 201 C 74 201 65 197 67 188 C 70 172 72 154 74 134 Z"/>
+        <rect x="80" y="104" width="22" height="54" rx="9" transform="rotate(-6 91 131)"/>
+        <path d="M 92 118 C 132 106 184 96 228 93 L 246 100 C 222 126 188 143 148 152 C 126 157 102 153 94 144 Z"/>
+      </g>
+      <path d="M 76 134 L 102 134 C 103 154 104 172 107 188 C 109 197 98 201 86 201 C 74 201 65 197 67 188 C 70 172 72 154 74 134 Z" fill="#d4a63a"/>
+      <rect x="80" y="104" width="22" height="54" rx="9" fill="#d4a63a" transform="rotate(-6 91 131)"/>
+      <path fill="#d7dae0" d="M 92 118 C 132 106 184 96 228 93 L 246 100 C 222 126 188 143 148 152 C 126 157 102 153 94 144 Z"/>
+      <path fill="#9CAAC0" opacity="0.4" d="M 241 101 C 219 125 187 142 148 151 C 127 156 103 152 95 144 L 98 135 C 120 144 146 141 167 132 C 190 120 218 112 240 104 Z"/>
+      <path fill="#c2324f" d="M 91 114 L 97 121 L 91 128 L 85 121 Z"/>
+    </g>
+  </g>
+
+  <g transform="translate(520,320) scale(1.45)" fill="none" stroke="#d7dae0" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 36 -58 C 34 -69 22 -74 11 -70 C 0 -66 -2 -54 7 -48 L 24 -38 C 35 -31 37 -16 28 -7 C 20 1 5 0 -2 -10"/>
+    <path d="M 58 0 L 58 -72"/>
+    <path d="M 76 -72 L 84 0 L 104 -56 L 124 0 L 132 -72"/>
+    <ellipse cx="190" cy="-36" rx="26" ry="36"/>
+    <path d="M 216 -72 L 216 0"/>
+    <path d="M 242 0 L 242 -104 M 242 -42 C 242 -56 253 -63 265 -63 C 276 -63 284 -55 284 -41 L 284 0"/>
+  </g>
+  <circle cx="604" cy="184" r="8" fill="#c2324f"/>
+
+  <text x="524" y="390" fill="#9CAAC0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="26">a coding agent that learns with you</text>
+  <text x="524" y="442" fill="#73839C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" letter-spacing="2">PLAN  ·  BUILD  ·  VERIFY  ·  EVOLVE</text>
+  <line x1="524" y1="470" x2="1110" y2="470" stroke="#2D3A4B" stroke-width="1"/>
+  <text x="524" y="504" fill="#d4a63a" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">siwah 1.0.0</text>
+  <text x="1050" y="504" fill="#73839C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">MIT</text>
+</svg>

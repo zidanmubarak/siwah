@@ -1,0 +1,28 @@
+{
+  "id": "golden-feature-04",
+  "category": "feature",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Implement `clamp` in features.py so the check passes.",
+  "files": {
+    "features.py": "def clamp(value, low, high):\n    return value\n",
+    "check.py": "from features import clamp\n\nassert clamp(5, 1, 3) == 3\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "features.py",
+          "old_string": "return value",
+          "new_string": "return max(low, min(value, high))"
+        }
+      }
+    ],
+    "final": "Implemented."
+  }
+}

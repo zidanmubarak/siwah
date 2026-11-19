@@ -1,0 +1,5 @@
+# Keep source line endings stable across Windows checkouts and Linux CI.
+* text=auto eol=lf
+
+# Captured terminal frames intentionally contain trailing padding spaces.
+ui/tui/test/__snapshots__/*.snap whitespace=-trailing-space

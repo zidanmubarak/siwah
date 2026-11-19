@@ -1,0 +1,28 @@
+{
+  "id": "golden-bugfix-03",
+  "category": "bugfix",
+  "language": "python",
+  "difficulty": "easy",
+  "prompt": "Fix `mul` in math_utils.py so the check passes.",
+  "files": {
+    "math_utils.py": "def mul(a, b):\n    return a + b\n",
+    "check.py": "from math_utils import mul\n\nassert mul(2, 3) == 6\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return a + b",
+          "new_string": "return a * b"
+        }
+      }
+    ],
+    "final": "Fixed it."
+  }
+}

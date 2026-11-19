@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Sync Python dependencies
+        run: uv sync --extra dev
+
+      - name: Python lint
+        run: uv run ruff check .
+
+      - name: Python format check
+        run: uv run ruff format --check .
+
+      - name: Python type check
+        run: uv run pyright
+
+      - name: Python tests (mock only)
+        run: uv run pytest
+
+      - name: Install TUI dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate OpenAPI and TypeScript types
+        run: |
+          uv run siwah openapi > ui/tui/openapi.json
+          cd ui/tui
+          bun run generate:types
+
+      - name: Generated contract is in sync
+        run: git diff --exit-code -- ui/tui/openapi.json ui/tui/src/api/schema.d.ts
+
+      - name: TypeScript lint
+        working-directory: ui/tui
+        run: bun run lint
+
+      - name: TypeScript type check
+        working-directory: ui/tui
+        run: bun run typecheck
+
+      - name: TypeScript tests
+        working-directory: ui/tui
+        run: bun run test
+
+      - name: Compiled TUI smoke test
+        working-directory: ui/tui
+        run: bun run build && ./dist/siwah-tui --version

@@ -1,0 +1,28 @@
+{
+  "id": "golden-ts-02",
+  "category": "feature",
+  "language": "typescript",
+  "difficulty": "medium",
+  "prompt": "Implement greet in greet.ts so check.ts passes.",
+  "files": {
+    "greet.ts": "export function greet(name: string) {\n  return name\n}\n",
+    "check.ts": "import { greet } from './greet'\nif (greet('Ada') !== 'Hi, Ada!') process.exit(1)\nconsole.log('ok')\n"
+  },
+  "protected": [
+    "check.ts"
+  ],
+  "check": "{bun} check.ts",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "greet.ts",
+          "old_string": "return name",
+          "new_string": "return `Hi, ${name}!`"
+        }
+      }
+    ],
+    "final": "Implemented."
+  }
+}

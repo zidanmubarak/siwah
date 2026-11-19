@@ -1,0 +1,28 @@
+{
+  "id": "golden-bugfix-06",
+  "category": "bugfix",
+  "language": "python",
+  "difficulty": "easy",
+  "prompt": "Fix `negate` in math_utils.py so the check passes.",
+  "files": {
+    "math_utils.py": "def negate(value):\n    return value\n",
+    "check.py": "from math_utils import negate\n\nassert negate(3) == -3\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return value",
+          "new_string": "return -value"
+        }
+      }
+    ],
+    "final": "Fixed it."
+  }
+}

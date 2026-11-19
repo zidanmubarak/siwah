@@ -1,0 +1,26 @@
+{
+  "id": "golden-tests-02",
+  "category": "tests",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Write a pytest file `test_unique.py` for `unique`; do not modify the source.",
+  "files": {
+    "stats.py": "def unique(values):\n    return list(dict.fromkeys(values))\n"
+  },
+  "protected": [
+    "stats.py"
+  ],
+  "check": "{python} -m pytest -q test_unique.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "write_file",
+        "arguments": {
+          "path": "test_unique.py",
+          "content": "from stats import unique\n\n\ndef test_unique():\n    assert unique([1, 1, 2]) == [1, 2]\n"
+        }
+      }
+    ],
+    "final": "Added the test."
+  }
+}

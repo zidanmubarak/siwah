@@ -1,0 +1,28 @@
+{
+  "id": "golden-refactor-01",
+  "category": "refactor",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Rename plus to add in math_utils.py without changing behavior.",
+  "files": {
+    "math_utils.py": "def plus(a, b):\n    return a + b\n",
+    "check.py": "from math_utils import add\n\nassert add(2, 3) == 5\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "def plus(",
+          "new_string": "def add("
+        }
+      }
+    ],
+    "final": "Renamed."
+  }
+}

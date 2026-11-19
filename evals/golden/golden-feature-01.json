@@ -1,0 +1,28 @@
+{
+  "id": "golden-feature-01",
+  "category": "feature",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Implement `slug` in features.py so the check passes.",
+  "files": {
+    "features.py": "def slug(value):\n    return value\n",
+    "check.py": "from features import slug\n\nassert slug('Hello World') == 'hello-world'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "features.py",
+          "old_string": "return value",
+          "new_string": "return value.lower().replace(' ', '-')"
+        }
+      }
+    ],
+    "final": "Implemented."
+  }
+}

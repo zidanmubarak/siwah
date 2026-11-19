@@ -1,0 +1,17 @@
+{
+  "id": "golden-comprehension-02",
+  "category": "comprehension",
+  "language": "python",
+  "difficulty": "hard",
+  "prompt": "Read names.py and name the Python type returned by `unique_names`. Start your answer with that type name. Do not edit files.",
+  "files": {
+    "names.py": "def unique_names(records):\n    return sorted({record['name'] for record in records})\n"
+  },
+  "protected": [
+    "names.py"
+  ],
+  "check_text": "list",
+  "mock": {
+    "final": "list — it returns a sorted list of unique names."
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "heldout-bugfix-01",
+  "category": "bugfix",
+  "language": "python",
+  "difficulty": "easy",
+  "prompt": "Fix `square` in math_utils.py so the check passes.",
+  "files": {
+    "math_utils.py": "def square(value):\n    return value * 3\n",
+    "check.py": "from math_utils import square\n\nassert square(4) == 16\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return value * 3",
+          "new_string": "return value * value"
+        }
+      }
+    ],
+    "final": "Fixed it."
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "golden-multi-03",
+  "category": "multi-file",
+  "language": "python",
+  "difficulty": "hard",
+  "prompt": "Fix the message assembly in app.py and labels.py.",
+  "files": {
+    "labels.py": "LABEL = 'Hello'\n",
+    "app.py": "from labels import LABEL\n\ndef message(name):\n    return LABEL + ' ' + name\n",
+    "check.py": "from app import message\n\nassert message('Ada') == 'Hi Ada'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "labels.py",
+          "old_string": "LABEL = 'Hello'",
+          "new_string": "LABEL = 'Hi'"
+        }
+      }
+    ],
+    "final": "Fixed."
+  }
+}

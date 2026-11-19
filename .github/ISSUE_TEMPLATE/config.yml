@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/zidanmubarak/siwah#readme
+    about: Setup, configuration, CLI, protocol, and troubleshooting.
+  - name: Security report
+    url: https://github.com/zidanmubarak/siwah/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.
+  - name: Questions and ideas
+    url: https://github.com/zidanmubarak/siwah/discussions
+    about: Ask a question or discuss a design before opening a feature request.

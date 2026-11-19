@@ -1,0 +1,39 @@
+{
+  "id": "golden-verifier-03",
+  "category": "refactor",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Refactor `mul` without breaking its behavior. Keep the tests green.",
+  "files": {
+    "math_utils.py": "def mul(a, b):\n    return a * b\n",
+    "check.py": "from math_utils import mul\n\nassert mul(2, 3) == 6\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "requires_verifier": true,
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return a * b",
+          "new_string": "return a + b"
+        }
+      }
+    ],
+    "repair_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return a + b",
+          "new_string": "return a * b"
+        }
+      }
+    ],
+    "final": "Behavior preserved."
+  }
+}

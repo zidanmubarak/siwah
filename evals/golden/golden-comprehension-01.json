@@ -1,0 +1,17 @@
+{
+  "id": "golden-comprehension-01",
+  "category": "comprehension",
+  "language": "python",
+  "difficulty": "hard",
+  "prompt": "Read parser.py and name the Python type returned by `parse_pairs`. Start your answer with that type name. Do not edit files.",
+  "files": {
+    "parser.py": "def parse_pairs(value):\n    return dict(item.split('=') for item in value.split(','))\n"
+  },
+  "protected": [
+    "parser.py"
+  ],
+  "check_text": "dict",
+  "mock": {
+    "final": "dict — it builds a dictionary mapping each key to its value."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "golden-multi-02",
+  "category": "multi-file",
+  "language": "python",
+  "difficulty": "hard",
+  "prompt": "Fix the area calculation across geometry.py and constants.py.",
+  "files": {
+    "geometry.py": "from constants import PI\n\ndef area(radius):\n    return PI * radius\n",
+    "constants.py": "PI = 3\n",
+    "check.py": "from geometry import area\n\nassert round(area(2), 2) == 12.57\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "constants.py",
+          "old_string": "PI = 3",
+          "new_string": "PI = 3.14159"
+        }
+      },
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "geometry.py",
+          "old_string": "return PI * radius",
+          "new_string": "return PI * radius * radius"
+        }
+      }
+    ],
+    "final": "Fixed."
+  }
+}

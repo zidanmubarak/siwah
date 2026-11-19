@@ -1,0 +1,39 @@
+{
+  "id": "golden-verifier-01",
+  "category": "refactor",
+  "language": "python",
+  "difficulty": "medium",
+  "prompt": "Refactor `add` without breaking its behavior. Keep the tests green.",
+  "files": {
+    "math_utils.py": "def add(a, b):\n    return a + b\n",
+    "check.py": "from math_utils import add\n\nassert add(2, 3) == 5\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "requires_verifier": true,
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return a + b",
+          "new_string": "return a - b"
+        }
+      }
+    ],
+    "repair_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return a - b",
+          "new_string": "return a + b"
+        }
+      }
+    ],
+    "final": "Behavior preserved."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "golden-multi-01",
+  "category": "multi-file",
+  "language": "python",
+  "difficulty": "hard",
+  "prompt": "Fix the greeting across names.py and config.py; keep check.py green.",
+  "files": {
+    "names.py": "def format_name(first, last):\n    return last + ' ' + first\n",
+    "config.py": "SUFFIX = ''\n",
+    "app.py": "from names import format_name\nfrom config import SUFFIX\n\ndef greeting(first, last):\n    return 'Hello ' + format_name(first, last) + SUFFIX\n",
+    "check.py": "from app import greeting\n\nassert greeting('Ada', 'Lovelace') == 'Hello Ada Lovelace!'\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "names.py",
+          "old_string": "return last + ' ' + first",
+          "new_string": "return first + ' ' + last"
+        }
+      },
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "config.py",
+          "old_string": "SUFFIX = ''",
+          "new_string": "SUFFIX = '!'"
+        }
+      }
+    ],
+    "final": "Greeting fixed."
+  }
+}

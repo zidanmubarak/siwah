@@ -1,0 +1,102 @@
+name: Bug report
+description: Report a reproducible defect in siwah.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove API keys, tokens, private code,
+        and personal paths from logs before submitting.
+
+        For a security vulnerability, use the security policy instead of this
+        form: https://github.com/zidanmubarak/siwah/security/advisories/new
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and the impact.
+      placeholder: The TUI exits when I...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command, prompt, or key sequence.
+      placeholder: |
+        1. Run `siwah ...`
+        2. Send `...`
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect instead?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: siwah version
+      description: Output of `siwah --version`.
+      placeholder: siwah 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Source bootstrap
+        - Manual git checkout
+        - Wheel
+        - Bundle
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, terminal, shell, and whether you use Docker or bubblewrap.
+      placeholder: Windows 11, Windows Terminal 1.24, Git Bash; no sandbox
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste the smallest useful excerpt. Remove secrets and private code.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Screenshots, configuration snippets, or related issues.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed API keys, tokens, private code, and personal paths from this report.
+          required: true
+        - label: I can reproduce this with the latest 1.0.x release.
+          required: false

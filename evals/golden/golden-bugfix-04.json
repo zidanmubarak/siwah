@@ -1,0 +1,28 @@
+{
+  "id": "golden-bugfix-04",
+  "category": "bugfix",
+  "language": "python",
+  "difficulty": "easy",
+  "prompt": "Fix `minimum` in math_utils.py so the check passes.",
+  "files": {
+    "math_utils.py": "def minimum(a, b):\n    return max(a, b)\n",
+    "check.py": "from math_utils import minimum\n\nassert minimum(2, 3) == 2\nprint('ok')\n"
+  },
+  "protected": [
+    "check.py"
+  ],
+  "check": "{python} check.py",
+  "mock": {
+    "first_tools": [
+      {
+        "name": "edit_file",
+        "arguments": {
+          "path": "math_utils.py",
+          "old_string": "return max(a, b)",
+          "new_string": "return min(a, b)"
+        }
+      }
+    ],
+    "final": "Fixed it."
+  }
+}
