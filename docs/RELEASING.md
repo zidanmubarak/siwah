@@ -124,10 +124,20 @@ binary, `SHA256SUMS`, `install.ps1`, `install.sh`, and a short README.
 
 ## GitHub Release
 
+Each release page contains only that version's changelog section. `CHANGELOG.md`
+keeps the full project history; the release workflow extracts the matching
+section with:
+
+```bash
+python scripts/release_notes.py v1.0.2 > release-notes.md
+```
+
+Then create the release with that file, not the whole changelog:
+
 ```bash
 gh release create v1.0.2 \
   --title "siwah 1.0.2" \
-  --notes-file CHANGELOG.md \
+  --notes-file release-notes.md \
   dist/siwah-1.0.2-py3-none-any.whl \
   dist/siwah-tui-windows-amd64.exe \
   dist/siwah-tui-linux-x86_64 \
@@ -136,7 +146,9 @@ gh release create v1.0.2 \
 ```
 
 Adjust the binary names to the artifacts you actually built. Attach checksums and
-keep the release notes honest about known limitations.
+keep the release notes honest about known limitations. A release fails if the
+version has no matching `## [x.y.z]` section, so add the changelog entry before
+tagging.
 
 ## TestPyPI verification
 
@@ -212,7 +224,8 @@ from a secret manager. In either case:
 - [ ] TUI lint, typecheck, tests, and build pass.
 - [ ] OpenAPI types are in sync.
 - [ ] Wheel smoke test passes.
-- [ ] Changelog is updated.
+- [ ] Changelog is updated and `scripts/release_notes.py vX.Y.Z` returns only
+      that version's section.
 - [ ] Tag `vX.Y.Z` is created and pushed.
 - [ ] Artifacts and checksums are attached to the GitHub Release.
 - [ ] TestPyPI wheel is uploaded and verified.

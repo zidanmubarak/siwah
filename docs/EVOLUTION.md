@@ -94,10 +94,11 @@ reset the daily cycle count or recorded allowance.
 The proposer is an LLM, so the parser accepts a small amount of schema drift
 before rejecting a candidate. For example, `scope: "agent"` is treated as the
 global harness, `level: "1"` becomes `1`, and a single evidence sentence becomes
-a one-item list. If the JSON still fails schema validation, the proposer asks
-the model for one repair with the exact schema. A second failure ends the cycle
-with an audit event; no harness change is applied. Inspect `siwah evolve log`
-before retrying.
+a one-item list. If the JSON is missing, truncated, or still fails schema
+validation, the proposer asks the model for one repair with the exact schema.
+Proposal calls use a larger output budget so a full-file `changes` value is not
+cut off. A second failure ends the cycle with an audit event; no harness change
+is applied. Inspect `siwah evolve log` before retrying.
 
 ## Probing tiers
 

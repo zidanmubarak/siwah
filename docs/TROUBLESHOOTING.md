@@ -318,8 +318,10 @@ limits.
 ### Evolution candidate is invalid
 
 The proposer normalizes common model drift such as `scope: "agent"` or a single
-string in `evidence`, then asks for one schema repair if needed. If the cycle
-still fails, inspect the audit log:
+string in `evidence`. If the response is missing JSON, truncated, or still fails
+schema validation, it asks for one repair with the exact schema. Proposal calls
+use a larger output budget so full-file changes are less likely to be cut off.
+If the cycle still fails, inspect the audit log:
 
 ```bash
 siwah evolve log
