@@ -156,8 +156,11 @@ siwah evolve log
 `--patch-file` cannot be combined with `--seed` or `--live`. `--pause` and
 `--resume` are mutually exclusive. `--reset-cooldown` is a standalone recovery
 action after a privacy or configuration preflight; it does not bypass the daily
-cycle or allowance limits. A Level 2 patch exits 0 only when it is promoted. See
-[Evolution](EVOLUTION.md).
+cycle or allowance limits. A Level 2 patch exits 0 only when it is promoted.
+
+Proposal output defaults to the model profile's `max_output`. Override it with
+`SIWAH_EVOLVE_MAX_TOKENS`: a positive integer sets an explicit cap, while `none`
+or `0` omits `max_tokens`. See [Evolution](EVOLUTION.md#proposal-output-budget).
 
 ## `rollback`
 

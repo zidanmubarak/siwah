@@ -7,9 +7,16 @@ Changelog, and the project uses semantic versioning.
 
 ### Fixed
 
-- Proposal calls now use a larger output budget and retry once when the model
-  returns non-JSON or truncated JSON. This covers candidates that rewrite a full
-  prompt file instead of a small fragment.
+- Proposal calls now use the model profile's `max_output` instead of a fixed
+  16k cap, with one repair retry when the model returns non-JSON or truncated
+  JSON. This covers candidates that rewrite a full prompt file instead of a
+  small fragment.
+
+### Added
+
+- `SIWAH_EVOLVE_MAX_TOKENS` overrides the proposal output ceiling. A positive
+  integer sets an explicit cap; `none` or `0` omits `max_tokens` and uses the
+  provider default.
 
 ### Changed
 

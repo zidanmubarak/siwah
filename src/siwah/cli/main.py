@@ -508,6 +508,23 @@ def audit(limit: int = typer.Option(20, "--limit", min=1, max=500)) -> None:
         typer.echo(json.dumps(event, ensure_ascii=False))
 
 
+def _profile_max_output(model: str | None) -> int | None:
+    """Return the provider-declared output ceiling for a model, if known."""
+
+    if not model:
+        return None
+    provider, separator, model_id = model.partition("/")
+    if not separator or not model_id:
+        return None
+    try:
+        profile = load_profile(provider, model_id)
+    except (OSError, ValueError):
+        return None
+    if profile.max_output is not None and profile.max_output > 0:
+        return profile.max_output
+    return None
+
+
 @app.command()
 def evolve(
     action: str | None = typer.Argument(None, help="Subcommand: log."),
@@ -554,6 +571,10 @@ def evolve(
     The selected model needs a privacy profile with `training=false`; create it
     with `siwah models probe <model>` and `siwah models privacy <model>
     --training false` only when the provider contract confirms it.
+
+    Proposal output uses the model profile's `max_output` by default. Set
+    `SIWAH_EVOLVE_MAX_TOKENS` to a positive integer for an explicit cap, or to
+    `none`/`0` to omit `max_tokens` and use the provider default.
     """
 
     if action == "log":
@@ -706,6 +727,32 @@ def evolve(
             err=True,
         )
         raise typer.Exit(2)
+
+    token_override = os.environ.get("SIWAH_EVOLVE_MAX_TOKENS")
+    if token_override is None:
+        # No artificial siwah cap: use the provider-declared model maximum when
+        # the profile has it. With no profile, omit max_tokens and let the
+        # provider choose its default.
+        proposal_max_tokens = _profile_max_output(model)
+    else:
+        normalized = token_override.strip().lower()
+        if normalized in {"", "none", "unlimited", "0"}:
+            proposal_max_tokens = None
+        else:
+            try:
+                proposal_max_tokens = int(normalized)
+            except ValueError:
+                typer.echo(
+                    "SIWAH_EVOLVE_MAX_TOKENS must be a positive integer, 'none', or 0",
+                    err=True,
+                )
+                raise typer.Exit(2) from None
+            if proposal_max_tokens <= 0:
+                typer.echo(
+                    "SIWAH_EVOLVE_MAX_TOKENS must be a positive integer, 'none', or 0",
+                    err=True,
+                )
+                raise typer.Exit(2)
     store: Store | None = None
     registry: ProviderRegistry | None = None
     model_spent = 0.0
@@ -750,7 +797,7 @@ def evolve(
                     emit=emit,
                     model_override=model,
                     temperature=0.0,
-                    max_tokens=16_000,
+                    max_tokens=proposal_max_tokens,
                     require_private=True,
                 )
                 model_spent += max(0.0, outcome.usage.allowance - reported_allowance)
@@ -760,6 +807,7 @@ def evolve(
                     {
                         "model": actual_model,
                         "allowance": max(reported_allowance, outcome.usage.allowance),
+                        "max_tokens": proposal_max_tokens,
                     },
                 )
                 limit = governor.check_cycle(model_spent, time.monotonic() - cycle_started)

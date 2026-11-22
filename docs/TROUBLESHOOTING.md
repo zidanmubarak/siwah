@@ -320,7 +320,9 @@ limits.
 The proposer normalizes common model drift such as `scope: "agent"` or a single
 string in `evidence`. If the response is missing JSON, truncated, or still fails
 schema validation, it asks for one repair with the exact schema. Proposal calls
-use a larger output budget so full-file changes are less likely to be cut off.
+use the model profile's `max_output` by default, so full-file changes are not
+cut off by an artificial 16k cap. If the provider rejects a very large
+`max_tokens`, set `SIWAH_EVOLVE_MAX_TOKENS` to `none` or a lower positive value.
 If the cycle still fails, inspect the audit log:
 
 ```bash

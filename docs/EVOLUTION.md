@@ -89,6 +89,25 @@ is not recorded and no cooldown is consumed. Older releases recorded the cycle;
 use `siwah evolve --reset-cooldown` once to clear a stuck cooldown. It does not
 reset the daily cycle count or recorded allowance.
 
+## Proposal output budget
+
+siwah does not impose a fixed 16k proposal cap. It uses the selected model
+profile's `max_output` as the output ceiling. For `deepseek-v4.1-flash` that is
+384,000 tokens, which leaves ample room for full-file `changes`. If a profile is
+missing, `max_tokens` is omitted and the provider chooses its default.
+
+Override the ceiling when needed:
+
+```bash
+SIWAH_EVOLVE_MAX_TOKENS=64000 siwah evolve --live ...
+SIWAH_EVOLVE_MAX_TOKENS=none siwah evolve --live ...   # omit max_tokens
+```
+
+`none` or `0` omits the parameter. A positive integer is an explicit cap. Cost,
+latency, and provider-side validation still apply; a model may stop before the
+ceiling when the JSON is complete. If a provider rejects a very large
+`max_tokens`, set a lower value or `none`.
+
 ## Candidate normalization
 
 The proposer is an LLM, so the parser accepts a small amount of schema drift
@@ -96,9 +115,8 @@ before rejecting a candidate. For example, `scope: "agent"` is treated as the
 global harness, `level: "1"` becomes `1`, and a single evidence sentence becomes
 a one-item list. If the JSON is missing, truncated, or still fails schema
 validation, the proposer asks the model for one repair with the exact schema.
-Proposal calls use a larger output budget so a full-file `changes` value is not
-cut off. A second failure ends the cycle with an audit event; no harness change
-is applied. Inspect `siwah evolve log` before retrying.
+A second failure ends the cycle with an audit event; no harness change is
+applied. Inspect `siwah evolve log` before retrying.
 
 ## Probing tiers
 

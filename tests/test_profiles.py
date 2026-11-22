@@ -5,7 +5,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from siwah.cli.main import app
+from siwah.cli.main import _profile_max_output, app
 from siwah.providers.profiles import (
     ModelProfile,
     PrivacyProfile,
@@ -33,6 +33,22 @@ def test_merge_privacy_preserves_a_human_assertion():
 
     assert merged.privacy.training is False
     assert merged.privacy.retention_days == 7
+
+
+def test_profile_max_output_reads_the_model_ceiling(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path))
+    save_profile(
+        ModelProfile(
+            provider="mock",
+            model="model-a",
+            api="openai_chat",
+            max_output=384_000,
+        )
+    )
+
+    assert _profile_max_output("mock/model-a") == 384_000
+    assert _profile_max_output("mock/missing") is None
+    assert _profile_max_output(None) is None
 
 
 def test_set_privacy_round_trips(tmp_path: Path):
