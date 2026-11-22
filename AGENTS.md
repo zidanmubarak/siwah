@@ -147,7 +147,8 @@ why the fixture is wrong and ask for review.
 - Do not bump the version, create a tag, create a GitHub Release, or publish to
   TestPyPI/PyPI without an explicit maintainer instruction.
 - Keep unreleased fixes under `## [Unreleased]` in `CHANGELOG.md`. Syncing them
-  to `main` for testing is allowed, but do not tag or announce a release.
+  to `main` for testing is allowed, but do not tag or announce a release. When a
+  release is approved, rename the heading to `## [x.y.z] — date` before tagging.
 - Before a release, report the version, change summary, and green gates, then
   wait for explicit approval.
 - Each GitHub Release page contains only that version's changelog section. Use
