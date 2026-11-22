@@ -3,6 +3,21 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Proposal calls now use a larger output budget and retry once when the model
+  returns non-JSON or truncated JSON. This covers candidates that rewrite a full
+  prompt file instead of a small fragment.
+
+### Changed
+
+- GitHub Release pages are generated from the matching version section only;
+  `scripts/release_notes.py` extracts it from `CHANGELOG.md`.
+- `AGENTS.md` now requires explicit maintainer approval before any version bump,
+  tag, GitHub Release, or TestPyPI/PyPI publication.
+
 ## [1.0.2] — 2026-11-22
 
 Patch release for live evolution and installation ergonomics.

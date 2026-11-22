@@ -142,6 +142,18 @@ why the fixture is wrong and ask for review.
 - Expect accepted changes to be ported into the maintainers' canonical tree
   before release during 1.0.x.
 
+## Release policy
+
+- Do not bump the version, create a tag, create a GitHub Release, or publish to
+  TestPyPI/PyPI without an explicit maintainer instruction.
+- Keep unreleased fixes under `## [Unreleased]` in `CHANGELOG.md`. Syncing them
+  to `main` for testing is allowed, but do not tag or announce a release.
+- Before a release, report the version, change summary, and green gates, then
+  wait for explicit approval.
+- Each GitHub Release page contains only that version's changelog section. Use
+  `scripts/release_notes.py`; never paste the full changelog into release notes.
+- Never retag or rebuild a published version. Prepare a patch release instead.
+
 ## When to stop and ask
 
 Ask a maintainer before:

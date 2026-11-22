@@ -750,7 +750,7 @@ def evolve(
                     emit=emit,
                     model_override=model,
                     temperature=0.0,
-                    max_tokens=2_000,
+                    max_tokens=16_000,
                     require_private=True,
                 )
                 model_spent += max(0.0, outcome.usage.allowance - reported_allowance)

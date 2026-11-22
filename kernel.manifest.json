@@ -51,7 +51,7 @@
     "src/siwah/adapt/observer.py": "1543b0002eb01241f497b36b80803493f5c08aa5636587eb1809937f693301bd",
     "src/siwah/adapt/prober.py": "7dee4e6f45d5f0cd7e4384b83cb8e3a3eaf25b6d1621f867e6c719cbaea80d46",
     "src/siwah/adapt/promoter.py": "0048403404afe2db0f98d5ba65e1187d55126e2e02963b9bb967df03e9d61b37",
-    "src/siwah/adapt/proposer.py": "78bbc1f868d3866f07dfdbf7ddf14f8945b6cea58554d1de7b82735ee4192b4d",
+    "src/siwah/adapt/proposer.py": "707f11309298e257abbe46578ab8ad98d80fbeb9a523e3a9eb836c4bdda9ee93",
     "src/siwah/adapt/reflector.py": "e5ea8d8288dc347048dd7aebb1f83a889a0c8adc726f3b3c8376009918703fdb",
     "src/siwah/adapt/restart.py": "7460fdfeb19912d57efb808759005c6caa42af73744f55d8b5ed2c127d509047",
     "src/siwah/adapt/state.py": "94ad2e51213f6ccea34953773eb839c7536c349ac13138b4cf5032b95a11b293",
@@ -60,7 +60,7 @@
     "src/siwah/adapt/worktree.py": "40edc6ede3816722382d01deda86543017655f0cdaf0423efbab51d5c57cae96",
     "src/siwah/auth.py": "51228d3998265b0aa5bb0e78bcd4a72d058f245ab070c862a68d68e5167ccfe2",
     "src/siwah/cli/__init__.py": "0badf25a27f3a40d0857b6160dab6901dae1a15f338eac402afd3131fd3d55d3",
-    "src/siwah/cli/main.py": "ce2191f7fd41a64a1287ba58f6cfe93ed1ee6f72d69ce55f2a40d96b5bce7124",
+    "src/siwah/cli/main.py": "8516892dd7908091db099b7155d956ed84a96e44cf6ee05fc83b3f821c889170",
     "src/siwah/cli/plain_ui.py": "64dae72af7e63cc69230547a29efef1ed94378eea56ca40e7b305a69fb1612ed",
     "src/siwah/config.py": "ac3a0ed32fe0c8d053162b2231f399f633f0803136d28e414103391e9d2c3310",
     "src/siwah/eval/__init__.py": "46c4d5e666c489f8642076df3f3ba8b1e70b4be78cfc1b5a4feb16f275e2a07f",
@@ -117,6 +117,6 @@
     "tests/kernel/test_snapshot.py": "327c3e472e0d69b7d909699fdafe052846232a87c1a58b5d1a9bc654d9fabaf9",
     "tests/kernel/test_supervisor.py": "72d7efbd67d9129d6e2a18244b303a736d1041e6595c2720f0aa5358b3faf791"
   },
-  "hash": "b52f027db99ead8a6fae3f2340d7c11ec85bd0c6716719c44079450afe71b3a2",
+  "hash": "66379e9caf8ea036c972cba621931c47d4767a11e46f86ccf958ec407230d4ce",
   "version": 1
 }

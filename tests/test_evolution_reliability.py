@@ -218,7 +218,8 @@ def test_cli_model_spend_is_persisted_when_proposal_or_budget_fails(
         app, ["evolve", "--live", "--max-allowance", "0.1", "--harness-dir", str(repo.root)]
     )
     assert result.exit_code == 2, result.output
-    count = 1 if over_cap else 2
+    # Reflection + proposal + one non-JSON repair attempt.
+    count = 1 if over_cap else 3
     assert len(calls) == count
     persisted = BudgetGovernor(config.budget).load_state()
     assert persisted.cycles_today == 1

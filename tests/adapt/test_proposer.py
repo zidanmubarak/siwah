@@ -85,7 +85,23 @@ async def test_llm_proposer_repairs_one_schema_error():
     assert "changes" in prompts[1]
 
 
-async def test_llm_proposer_does_not_retry_a_non_json_answer():
+async def test_llm_proposer_repairs_a_non_json_answer():
+    responses = iter(["not json", json.dumps(_payload())])
+    prompts: list[str] = []
+
+    async def call(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(responses)
+
+    proposer = LLMProposer(call)
+    candidate = await proposer.propose(Reflection(summary="needs a small fix"), [])
+
+    assert candidate.id == "candidate-1"
+    assert len(prompts) == 2
+    assert "Previous response excerpt" in prompts[1]
+
+
+async def test_llm_proposer_reports_a_second_non_json_failure():
     calls = 0
 
     async def call(_prompt: str) -> str:
@@ -97,4 +113,4 @@ async def test_llm_proposer_does_not_retry_a_non_json_answer():
     with pytest.raises(ProposalError):
         await proposer.propose(Reflection(summary="needs a small fix"), [])
 
-    assert calls == 1
+    assert calls == 2

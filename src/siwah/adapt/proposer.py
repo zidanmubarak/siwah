@@ -125,27 +125,38 @@ class LLMProposer:
 
     async def propose(self, reflection: Reflection, observations: list[Observation]) -> Candidate:
         prompt = (
-            "Propose one Level 0 or Level 1 harness candidate as a JSON object. "
+            "Propose one Level 0 or Level 1 harness candidate as a single JSON "
+            "object. Your entire response must start with `{` and end with `}`. "
+            "Do not use Markdown fences, prose, or commentary.\n"
             "Use exactly this shape:\n"
             f"{_SCHEMA}\n\n"
             "Rules: `scope` must be global, project, or model. `evidence` must be "
             "a list of strings. `changes` maps harness-relative paths to full new "
-            "file contents (null deletes). Only edit prompts/, tool_guidance/, "
-            "skills/, profiles/, or config.toml. Never edit the kernel, evals, "
-            "permissions, or guardrails. Return JSON only.\n\n"
+            "file contents (null deletes). Keep the JSON compact; do not repeat "
+            "unchanged file content outside `changes`. Only edit prompts/, "
+            "tool_guidance/, skills/, profiles/, or config.toml. Never edit the "
+            "kernel, evals, permissions, or guardrails. Return JSON only.\n\n"
             f"Diagnosis:\n{reflection.summary}"
         )
         text = await self.call(prompt)
         try:
             return parse_candidate(text)
-        except CandidateSchemaError as exc:
+        except ProposalError as exc:
+            excerpt = text.strip()
+            if len(excerpt) > 1_200:
+                excerpt = excerpt[:1_200] + "\n... [truncated]"
             repaired = await self.call(
-                "Your previous response was valid JSON but did not match the "
-                "candidate schema.\n"
-                f"Validation errors: {exc}\n\n"
-                "Return one corrected JSON object only, with exactly this shape:\n"
+                "Your previous response could not be parsed as a candidate.\n"
+                f"Error: {exc}\n\n"
+                "Previous response excerpt:\n"
+                f"{excerpt}\n\n"
+                "Return exactly one corrected JSON object, starting with `{` and "
+                "ending with `}`. Do not use Markdown fences or prose. Use exactly "
+                "this shape:\n"
                 f"{_SCHEMA}\n\n"
-                "Do not add fields outside the schema. Return JSON only."
+                "Do not add fields outside the schema. If the full new file is "
+                "large, still return the complete `changes` value; the output "
+                "budget is sufficient. Return JSON only."
             )
             return parse_candidate(repaired)
 
