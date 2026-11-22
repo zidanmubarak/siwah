@@ -22,6 +22,8 @@ from typing import Any
 import httpx
 
 from ..paths import harness_dir, write_private
+from ..plugins import plugin_mcp_servers
+from .oauth import McpAuthRequired, McpOAuthError, OAuthClient, oauth_status
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 MCP_CONFIG_NAME = "mcp.json"
@@ -53,6 +55,7 @@ class McpServerInfo:
     description: str = ""
     enabled: bool = True
     valid: bool = True
+    auth: str = "none"
     error: str | None = None
 
 
@@ -61,18 +64,23 @@ def mcp_config_path(root: Path | str | None = None) -> Path:
     return base / MCP_CONFIG_NAME
 
 
-def load_mcp_config(root: Path | str | None = None, *, strict: bool = False) -> dict[str, Any]:
+def load_mcp_config(
+    root: Path | str | None = None,
+    *,
+    strict: bool = False,
+    include_plugins: bool = True,
+) -> dict[str, Any]:
     """Read ``mcp.json`` and return a payload with a ``servers`` mapping."""
 
     path = mcp_config_path(root)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"servers": {}}
+        payload = {"servers": {}}
     except (OSError, json.JSONDecodeError) as exc:
         if strict:
             raise McpError(f"Cannot read {path}: {exc}") from exc
-        return {"servers": {}}
+        payload = {"servers": {}}
     if not isinstance(payload, dict):
         if strict:
             raise McpError(f"{path} must contain a JSON object")
@@ -82,6 +90,9 @@ def load_mcp_config(root: Path | str | None = None, *, strict: bool = False) -> 
         if strict:
             raise McpError(f"{path}: 'servers' must be an object")
         servers = {}
+    if root is None and include_plugins:
+        for name, config in plugin_mcp_servers().items():
+            servers.setdefault(name, config)
     return {"servers": servers}
 
 
@@ -132,7 +143,29 @@ def normalize_server(name: str, config: Any) -> dict[str, Any]:
         if headers is not None and not isinstance(headers, dict):
             raise McpError(f"MCP server {name}: headers must be an object")
         normalized["headers"] = {str(key): str(value) for key, value in (headers or {}).items()}
+        auth = str(config.get("auth", "none")).strip().lower() or "none"
+        if auth not in {"none", "oauth"}:
+            raise McpError(f"MCP server {name}: auth must be none or oauth")
+        normalized["auth"] = auth
+        if auth == "oauth":
+            if any(key.lower() == "authorization" for key in normalized["headers"]):
+                raise McpError(
+                    f"MCP server {name}: use auth=oauth instead of a static Authorization header"
+                )
+            normalized["resource"] = str(config.get("resource", url)).strip() or url
+            normalized["scopes"] = _string_list(config.get("scopes"))
+            client_id = config.get("client_id")
+            if client_id is not None:
+                normalized["client_id"] = str(client_id).strip()
+            client_secret_env = config.get("client_secret_env")
+            if client_secret_env is not None:
+                normalized["client_secret_env"] = str(client_secret_env).strip()
         return normalized
+
+    auth = str(config.get("auth", "none")).strip().lower() or "none"
+    if auth != "none":
+        raise McpError(f"MCP server {name}: auth=oauth requires an HTTP transport")
+    normalized["auth"] = "none"
 
     command = config.get("command")
     if isinstance(command, str):
@@ -148,6 +181,16 @@ def normalize_server(name: str, config: Any) -> dict[str, Any]:
         raise McpError(f"MCP server {name}: env must be an object")
     normalized["env"] = {str(key): str(value) for key, value in (environment or {}).items()}
     return normalized
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item for item in value.replace(",", " ").split() if item]
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
 
 
 def _positive_float(value: Any, server: str, field: str) -> float:
@@ -286,11 +329,13 @@ class HttpMcpClient:
         headers: dict[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 30.0,
+        oauth: OAuthClient | None = None,
     ) -> None:
         self.url = url
         self.headers = headers or {}
         self.transport = transport
         self.timeout_s = timeout_s
+        self.oauth = oauth
         self.protocol_version = MCP_PROTOCOL_VERSION
         self._id = 0
         self._session_id: str | None = None
@@ -327,20 +372,36 @@ class HttpMcpClient:
         if response.status_code not in {200, 202, 204}:
             response.raise_for_status()
 
-    async def _post(self, payload: dict[str, Any]) -> httpx.Response:
+    async def _auth_headers(self) -> dict[str, str]:
         headers = {
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             **self.headers,
         }
+        if self.oauth is not None:
+            try:
+                token = await self.oauth.access_token()
+            except (McpAuthRequired, McpOAuthError) as exc:
+                raise McpError(str(exc)) from exc
+            headers["Authorization"] = f"Bearer {token}"
         if self._session_id:
             headers["Mcp-Session-Id"] = self._session_id
         if self._initialized:
             headers["MCP-Protocol-Version"] = self.protocol_version
+        return headers
+
+    async def _post(self, payload: dict[str, Any], *, retried: bool = False) -> httpx.Response:
+        headers = await self._auth_headers()
         try:
             response = await self._client().post(self.url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise McpError(f"MCP HTTP request failed: {exc}") from exc
+        if response.status_code == 401 and self.oauth is not None and not retried:
+            try:
+                await self.oauth.refresh()
+            except (McpAuthRequired, McpOAuthError) as exc:
+                raise McpError(str(exc)) from exc
+            return await self._post(payload, retried=True)
         session_id = response.headers.get("Mcp-Session-Id")
         if session_id:
             self._session_id = session_id
@@ -380,6 +441,8 @@ class HttpMcpClient:
         if self._http is not None:
             await self._http.aclose()
             self._http = None
+        if self.oauth is not None:
+            await self.oauth.aclose()
 
 
 async def _list_tools_paginated(
@@ -476,9 +539,18 @@ def _error_text(error: Any) -> str:
 
 
 class McpManager:
-    def __init__(self, servers: dict[str, Any], *, root: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        servers: dict[str, Any],
+        *,
+        root: Path | str | None = None,
+        oauth_transport: httpx.AsyncBaseTransport | None = None,
+        include_plugins: bool = False,
+    ) -> None:
         self.servers = servers
         self.root = Path(root) if root is not None else harness_dir()
+        self.oauth_transport = oauth_transport
+        self.include_plugins = include_plugins
         self._clients: dict[str, StdioMcpClient | HttpMcpClient] = {}
         self._tools: dict[str, list[McpToolInfo]] = {}
         self.last_errors: dict[str, str] = {}
@@ -486,8 +558,12 @@ class McpManager:
     @classmethod
     def load(cls, root: Path | str | None = None) -> McpManager:
         base = Path(root) if root is not None else harness_dir()
-        payload = load_mcp_config(base)
-        return cls(payload.get("servers", {}), root=base)
+        payload = load_mcp_config(root)
+        return cls(
+            payload.get("servers", {}),
+            root=base,
+            include_plugins=root is None,
+        )
 
     def describe(self) -> list[McpServerInfo]:
         infos: list[McpServerInfo] = []
@@ -512,6 +588,7 @@ class McpManager:
                     transport=str(config["transport"]),
                     description=str(config.get("description", "")),
                     enabled=bool(config.get("enabled", True)),
+                    auth=str(config.get("auth", "none")),
                 )
             )
         return infos
@@ -531,6 +608,8 @@ class McpManager:
                 "description": info.description,
                 "enabled": info.enabled,
                 "valid": info.valid,
+                "auth": info.auth,
+                "oauth": oauth_status(info.name) if info.auth == "oauth" else "none",
                 "tools": [],
                 "latency_ms": None,
                 "error": info.error,
@@ -593,10 +672,24 @@ class McpManager:
         if not config.get("enabled", True):
             raise McpError(f"MCP server {name} is disabled")
         if config["transport"] == "http":
+            oauth = (
+                OAuthClient(
+                    name,
+                    str(config["url"]),
+                    client_id=config.get("client_id"),
+                    client_secret_env=config.get("client_secret_env"),
+                    scopes=config.get("scopes") or (),
+                    transport=self.oauth_transport,
+                    timeout_s=float(config.get("timeout_s", 30.0)),
+                )
+                if config.get("auth") == "oauth"
+                else None
+            )
             client: StdioMcpClient | HttpMcpClient = HttpMcpClient(
                 str(config["url"]),
                 headers=config.get("headers") or {},
                 timeout_s=float(config.get("timeout_s", 30.0)),
+                oauth=oauth,
             )
         else:
             client = StdioMcpClient(
@@ -653,8 +746,12 @@ class McpManager:
         """Reload ``mcp.json`` after the agent adds or removes a server."""
 
         await self.close()
-        payload = load_mcp_config(self.root)
-        self.servers = payload.get("servers", {})
+        payload = load_mcp_config(self.root, include_plugins=False)
+        servers = payload.get("servers", {})
+        if self.include_plugins:
+            for name, config in plugin_mcp_servers().items():
+                servers.setdefault(name, config)
+        self.servers = servers
 
 
 def mcp_context(root: Path | str | None = None) -> str:

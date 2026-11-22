@@ -148,6 +148,52 @@ siwah models privacy opencode-go/<model-id> --training false
 clear a human decision. A model with `training = true` is rejected for
 reflection even if it is configured as a fallback.
 
+## MCP servers
+
+`~/.siwah/harness/mcp.json` holds streamable HTTP and stdio servers:
+
+```json
+{
+  "servers": {
+    "context7": {
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "description": "Context7 library docs"
+    },
+    "context7-oauth": {
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp/oauth",
+      "auth": "oauth",
+      "scopes": ["profile", "email"]
+    },
+    "local-files": {
+      "transport": "stdio",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path"]
+    }
+  }
+}
+```
+
+`auth` is `none` (default) or `oauth`. With `oauth`, do not add a static
+`Authorization` header; run `siwah mcp auth <name>` once. Tokens are stored in
+`~/.siwah/mcp-auth/<name>.json` with mode 600, never in `mcp.json`. For servers
+without dynamic client registration, set `client_id` (and optionally
+`client_secret_env`, the name of an environment variable). `scopes` is a list.
+
+A fresh OAuth login uses authorization code + PKCE and a loopback callback. Use
+`--device` on a headless/SSH host, or `--no-browser` to print the URL and open it
+elsewhere. `siwah mcp list` shows `missing`, `authenticated`, `refreshable`,
+`expired`, or `invalid`; `siwah mcp logout <name>` removes local state.
+
+## Plugins
+
+Plugins are declarative bundles under `~/.siwah/plugins/<name>/` and can provide
+skills, commands, subagents, hooks, and MCP servers. They are enabled by default
+when installed; disable with `siwah plugin disable <name>`. Project files take
+precedence over plugins, and `~/.siwah/harness/mcp.json` takes precedence over a
+plugin server with the same name. No Python code is imported. See
+[Plugins](PLUGINS.md).
+
 ## Roles
 
 Roles map work to model references:

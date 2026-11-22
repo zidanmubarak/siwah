@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .paths import harness_dir
+from .plugins import plugin_command_roots
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ def list_commands_for(workspace: Path | None = None) -> list[CommandSpec]:
     roots: list[Path] = []
     if workspace is not None:
         roots.append(project_commands_dir(workspace))
+    roots.extend(plugin_command_roots())
     roots.append(commands_dir())
     commands: list[CommandSpec] = []
     seen: set[str] = set()

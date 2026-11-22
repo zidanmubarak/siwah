@@ -12,6 +12,7 @@ from typing import Any
 
 from .jobs import safe_environment
 from .paths import harness_dir
+from .plugins import plugin_hook_roots
 
 
 @dataclass(frozen=True)
@@ -33,39 +34,40 @@ class HookResult:
 
 
 def load_hooks(root: Path | str | None = None) -> list[HookSpec]:
-    base = Path(root) if root is not None else harness_dir() / "hooks"
-    if not base.is_dir():
-        return []
+    bases = [Path(root)] if root is not None else [harness_dir() / "hooks", *plugin_hook_roots()]
     hooks: list[HookSpec] = []
-    for path in sorted(base.glob("*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+    for base in bases:
+        if not base.is_dir():
             continue
-        if not isinstance(payload, dict):
-            continue
-        command = payload.get("command")
-        if isinstance(command, str):
-            command = [command]
-        if (
-            not isinstance(command, list)
-            or not command
-            or not all(isinstance(item, str) for item in command)
-        ):
-            continue
-        event = str(payload.get("event", "")).strip()
-        if not event:
-            continue
-        hooks.append(
-            HookSpec(
-                name=str(payload.get("name", path.stem)),
-                event=event,
-                command=tuple(command),
-                matcher=str(payload["matcher"]) if payload.get("matcher") else None,
-                timeout_s=float(payload.get("timeout_s", 15.0)),
-                cwd=str(path.parent),
+        for path in sorted(base.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            command = payload.get("command")
+            if isinstance(command, str):
+                command = [command]
+            if (
+                not isinstance(command, list)
+                or not command
+                or not all(isinstance(item, str) for item in command)
+            ):
+                continue
+            event = str(payload.get("event", "")).strip()
+            if not event:
+                continue
+            hooks.append(
+                HookSpec(
+                    name=str(payload.get("name", path.stem)),
+                    event=event,
+                    command=tuple(command),
+                    matcher=str(payload["matcher"]) if payload.get("matcher") else None,
+                    timeout_s=float(payload.get("timeout_s", 15.0)),
+                    cwd=str(path.parent),
+                )
             )
-        )
     return hooks
 
 

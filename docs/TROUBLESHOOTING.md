@@ -362,6 +362,54 @@ the executable must be on the daemon's `PATH`, which may differ from your shell'
 `PATH`. For HTTP servers, check headers and the endpoint. A timeout is not
 necessarily a configuration error.
 
+### MCP says OAuth authentication required
+
+The server is configured with `"auth": "oauth"`, but no valid token exists:
+
+```bash
+siwah mcp list                 # oauth=missing/expired/refreshable
+siwah mcp auth <name>          # browser + loopback callback
+siwah mcp auth <name> --device # headless/SSH
+siwah mcp auth <name> --no-browser
+```
+
+Tokens are stored in `~/.siwah/mcp-auth/<name>.json` with mode 600. Use
+`siwah mcp logout <name>` to remove them. If the server does not support dynamic
+client registration, set `client_id` on the server config (and
+`client_secret_env` if a secret is required).
+
+### OAuth browser callback fails
+
+The callback listener binds `127.0.0.1` on an ephemeral port. A container, WSL
+network boundary, firewall, or browser running on another machine can prevent
+the callback. Use `--device` for headless/SSH, or `--no-browser` and open the
+printed URL on a machine that can reach the listener. Do not paste tokens into
+chat or commit `~/.siwah/mcp-auth/`.
+
+Some authorization servers advertise a device endpoint but do not grant
+`urn:ietf:params:oauth:grant-type:device_code` to a dynamically registered
+client. In that case `--device` reports `invalid_grant`; use the browser flow or
+pre-register a client with device-flow support.
+
+### Plugin content does not appear
+
+```bash
+siwah plugin list
+siwah plugin info <name>
+siwah plugin enable <name>
+```
+
+Loaders read plugins at session start. Start a new session or restart the daemon
+after installing/enabling a plugin. Project files win over plugins, and a user
+`mcp.json` server wins over a plugin server with the same name.
+
+### Plugin install is rejected
+
+Only directories and `.zip` files are accepted. The bundle needs `plugin.toml`
+at its root with a lowercase name, at most 5,000 files, and at most 20 MB.
+Symlinks and zip entries that escape the plugin directory are rejected. Hooks in
+a plugin still execute commands; only install trusted bundles.
+
 ### The sandbox fails closed
 
 With `[sandbox].enabled = true`, a missing Docker or bubblewrap backend is an

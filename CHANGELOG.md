@@ -17,9 +17,20 @@ Changelog, and the project uses semantic versioning.
 - `SIWAH_EVOLVE_MAX_TOKENS` overrides the proposal output ceiling. A positive
   integer sets an explicit cap; `none` or `0` omits `max_tokens` and uses the
   provider default.
+- Generic OAuth 2.1 support for streamable HTTP MCP servers: protected-resource
+  and authorization-server discovery, authorization code + PKCE, dynamic client
+  registration, device flow, refresh, and token storage under
+  `~/.siwah/mcp-auth/` with mode 600.
+- `siwah mcp auth`, `siwah mcp logout`, and `siwah mcp status`.
+- Declarative plugin bundles for skills, commands, subagents, hooks, and MCP
+  servers, with `siwah plugin install/list/info/enable/disable/remove`.
+- `public/docs/PLUGINS.md` and MCP OAuth documentation.
 
 ### Changed
 
+- MCP server configuration accepts `auth = "oauth"`, `scopes`, `client_id`, and
+  `client_secret_env`. A static `Authorization` header is rejected when OAuth is
+  enabled.
 - GitHub Release pages are generated from the matching version section only;
   `scripts/release_notes.py` extracts it from `CHANGELOG.md`.
 - `AGENTS.md` now requires explicit maintainer approval before any version bump,

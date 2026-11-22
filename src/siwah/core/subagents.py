@@ -13,6 +13,7 @@ from typing import Any
 from ..config import CheckpointConfig, Config, VerifyConfig
 from ..paths import harness_dir
 from ..permissions.policy import Approval, PermissionRequest
+from ..plugins import plugin_subagent_roots
 from ..providers.registry import RoleRouter
 from ..tools.base import Tool, ToolRegistry
 from .storage import Session, Store
@@ -98,29 +99,43 @@ def load_subagents(
     root: Path | str | None = None, *, include_defaults: bool = True
 ) -> dict[str, SubagentSpec]:
     specs = {spec.name: spec for spec in DEFAULT_SUBAGENTS} if include_defaults else {}
-    base = Path(root) if root is not None else harness_dir() / "subagents"
-    if not base.is_dir():
-        return specs
-    for path in sorted(base.glob("*.md")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
+    bases = (
+        [Path(root)]
+        if root is not None
+        else [
+            harness_dir() / "subagents",
+            *plugin_subagent_roots(),
+        ]
+    )
+    for base in bases:
+        if not base.is_dir():
             continue
-        metadata, body = _parse_frontmatter(text)
-        name = metadata.get("name", path.stem).strip()
-        if not name:
-            continue
-        tools = tuple(item.strip() for item in metadata.get("tools", "").split(",") if item.strip())
-        read_only = metadata.get("read_only", "false").strip().lower() in {"1", "true", "yes"}
-        specs[name] = SubagentSpec(
-            name=name,
-            description=metadata.get("description", "").strip() or name,
-            role=metadata.get("role", "main").strip() or "main",
-            model=metadata.get("model", "").strip() or None,
-            tools=tools,
-            read_only=read_only,
-            body=body.strip(),
-        )
+        for path in sorted(base.glob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            metadata, body = _parse_frontmatter(text)
+            name = metadata.get("name", path.stem).strip()
+            if not name:
+                continue
+            tools = tuple(
+                item.strip() for item in metadata.get("tools", "").split(",") if item.strip()
+            )
+            read_only = metadata.get("read_only", "false").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            specs[name] = SubagentSpec(
+                name=name,
+                description=metadata.get("description", "").strip() or name,
+                role=metadata.get("role", "main").strip() or "main",
+                model=metadata.get("model", "").strip() or None,
+                tools=tools,
+                read_only=read_only,
+                body=body.strip(),
+            )
     return specs
 
 

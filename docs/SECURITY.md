@@ -164,6 +164,31 @@ used only by the local fallback.
 
 The gate is heuristic. It is not a formal proof that a candidate is safe.
 
+### MCP OAuth
+
+- OAuth discovery accepts HTTPS endpoints; plain HTTP is limited to loopback
+  development servers.
+- The browser flow uses authorization code + PKCE (S256), a random state value,
+  and a loopback listener bound to `127.0.0.1` on an ephemeral port.
+- Device flow is available for headless/SSH sessions.
+- Access and refresh tokens are stored in `~/.siwah/mcp-auth/<server>.json` with
+  mode 600. They are never written to `mcp.json`, status output, or logs.
+- Tokens are refreshed before expiry; a failed refresh marks the server as
+  requiring login instead of silently using an expired token.
+- Dynamic client registration is used when offered. A client secret, when
+  needed, is read from an environment variable named by `client_secret_env`.
+
+### Plugins
+
+- Plugins are declarative bundles; siwah does not import or execute Python code
+  from them.
+- Hooks still execute their configured commands, so installing a plugin is a
+  trust decision. Install only from sources you trust.
+- Plugin MCP servers use the same permission rules as user-configured servers.
+- Zip traversal, symlinks, oversized bundles, and invalid names are rejected.
+- Installing or removing a plugin does not modify protected source or evaluation
+  paths.
+
 ### Updates
 
 - The updater uses the normal git credential helper. It never embeds a GitHub

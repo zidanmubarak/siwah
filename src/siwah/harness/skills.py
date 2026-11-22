@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..paths import harness_dir
+from ..plugins import plugin_skill_roots
 from .memory import secret_marker
 
 MAX_DESCRIPTION = 500
@@ -44,9 +45,11 @@ def project_skills_dir(workspace: Path) -> Path:
 
 
 def _skill_roots(workspace: Path | None = None) -> list[Path]:
-    roots = [skills_dir()]
+    roots: list[Path] = []
     if workspace is not None:
-        roots.insert(0, project_skills_dir(workspace))
+        roots.append(project_skills_dir(workspace))
+    roots.extend(plugin_skill_roots())
+    roots.append(skills_dir())
     return roots
 
 

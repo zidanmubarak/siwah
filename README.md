@@ -52,6 +52,11 @@ telemetry, and no hardcoded model IDs, prices, or limits.
   manifest, supervisor rollback, and dirty-repository refusal.
 - **Extensibility:** editable prompts, guidance, skills, commands, subagents,
   profiles, hooks, and MCP; project overrides under `.siwah/`; background jobs.
+- **MCP auth:** stdio and streamable HTTP servers, generic OAuth 2.1 discovery,
+  PKCE, dynamic client registration, device flow for headless sessions, refresh,
+  and tokens stored outside `mcp.json`.
+- **Plugins:** declarative bundles of skills, commands, subagents, hooks, and MCP
+  servers; no Python code is imported. Install with `siwah plugin install`.
 - **Evaluation:** golden, heldout, and traps; mock and live modes; T0–T3 tiers;
   evolution Levels 0–2 with budget, canary, tags, rollback, and audit.
 
@@ -134,6 +139,38 @@ Add providers and role targets in `~/.siwah/harness/config.toml`; siwah writes
 provider or role settings. Credentials come from the configured environment
 variable first, then the auth file. Legacy `~/.siwah/config.toml` files are
 migrated on first load. See [Configuration](docs/CONFIGURATION.md).
+
+## MCP and plugins
+
+Add a remote MCP server without OAuth:
+
+```bash
+siwah mcp add context7 --url https://mcp.context7.com/mcp
+siwah mcp test context7
+```
+
+For servers that advertise OAuth, use `auth=oauth` and complete the login once:
+
+```bash
+siwah mcp add context7-oauth --url https://mcp.context7.com/mcp/oauth \
+  --auth oauth --scope profile --scope email
+siwah mcp auth context7-oauth          # add --device on a headless/SSH host
+siwah mcp list                          # oauth=authenticated
+```
+
+Discovery, PKCE, dynamic client registration, refresh, and device flow are
+generic. Tokens are stored in `~/.siwah/mcp-auth/<server>.json` with mode 600,
+not in `mcp.json`. See [Configuration](docs/CONFIGURATION.md#mcp-servers).
+
+Plugins bundle harness data and MCP servers:
+
+```bash
+siwah plugin install ./my-plugin
+siwah plugin list
+```
+
+They are declarative; hooks still execute commands, so install only trusted
+bundles. See [Plugins](docs/PLUGINS.md).
 
 ## Permissions
 

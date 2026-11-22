@@ -78,13 +78,14 @@ siwah/
 │  │                 best-of-N, observer, proposer, synthetic fixtures
 │  ├─ eval/          protected fixture loader and compatibility exports
 │  ├─ harness/       bootstrap, prompt composition, memory, skills
-│  ├─ mcp/           stdio and HTTP JSON-RPC client
+│  ├─ mcp/           stdio and HTTP JSON-RPC, generic OAuth 2.1
 │  ├─ cli/           Typer commands and plain/JSON renderers
 │  ├─ sandbox.py     Docker/bubblewrap command sandbox
 │  ├─ acp.py         Agent Client Protocol stdio bridge
 │  ├─ hooks.py       local hook runner
 │  ├─ jobs.py        process-local background jobs
-│  └─ commands.py    custom slash-command loader
+│  ├─ commands.py    custom slash-command loader
+│  └─ plugins.py     declarative plugin bundle loader
 ├─ ui/tui/           OpenTUI + Solid interface and generated API types
 ├─ evals/            protected golden, heldout, traps, baseline
 └─ tests/

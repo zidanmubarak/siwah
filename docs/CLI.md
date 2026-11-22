@@ -354,6 +354,8 @@ workspace used to resolve project memory.
 siwah mcp path
 siwah mcp list [--tools]
 siwah mcp add NAME (--command CMD | --url URL) [OPTIONS]
+siwah mcp auth NAME [--device] [--no-browser]
+siwah mcp logout NAME
 siwah mcp remove NAME
 siwah mcp show NAME
 siwah mcp status [SERVER]
@@ -369,6 +371,10 @@ siwah mcp test SERVER
 | `--arg` | Extra stdio argument; repeatable. |
 | `--url` | Streamable HTTP endpoint. |
 | `--header` | HTTP header `Name=Value`; repeatable. Only with `--url`. |
+| `--auth` | HTTP auth mode: `none` or `oauth`. |
+| `--scope` | OAuth scope; repeatable. Only with `--url --auth oauth`. |
+| `--client-id` | Pre-registered OAuth client id. |
+| `--client-secret-env` | Environment variable holding the OAuth client secret. |
 | `--env` | stdio environment `Name=Value`; repeatable. |
 | `--cwd` | stdio working directory. |
 | `--timeout` | Request timeout in seconds (default 30). |
@@ -377,9 +383,48 @@ siwah mcp test SERVER
 | `--force` | Replace an existing server. |
 
 `--arg`, `--env`, and `--cwd` are only valid with `--command`. `--header` is only
-valid with `--url`. `show` redacts header and environment values. `status`
-prints connected/error, tool count, and latency. `list --tools`, `tools`, and
-`test` exit 1 when a server fails to connect.
+valid with `--url`. `--auth oauth` cannot be combined with a static
+`Authorization` header. `show` redacts header and environment values. `list`
+shows `auth` and `oauth` status (`missing`, `authenticated`, `refreshable`,
+`expired`, or `invalid`). `status` prints connected/error, tool count, latency,
+and OAuth status. `list --tools`, `tools`, and `test` exit 1 when a server fails
+to connect.
+
+For OAuth, `add` stores metadata only; the login is a separate explicit step:
+
+```bash
+siwah mcp add context7 \
+  --url https://mcp.context7.com/mcp/oauth \
+  --auth oauth --scope profile --scope email
+siwah mcp auth context7                  # browser + loopback callback
+siwah mcp auth context7 --device         # headless/SSH
+siwah mcp auth context7 --no-browser     # print the URL yourself
+siwah mcp logout context7
+```
+
+`auth` performs generic protected-resource/authorization-server discovery,
+dynamic client registration when supported, PKCE, token exchange, and refresh.
+Tokens live in `~/.siwah/mcp-auth/<server>.json` mode 600, not in `mcp.json`.
+Use `--client-id`/`--client-secret-env` for a server that does not support
+dynamic registration.
+
+## `plugin`
+
+```text
+siwah plugin install PATH_OR_ZIP [--force]
+siwah plugin list
+siwah plugin info NAME
+siwah plugin enable NAME
+siwah plugin disable NAME
+siwah plugin remove NAME [--yes]
+```
+
+Plugins are declarative bundles of skills, commands, subagents, hooks, and MCP
+servers. They are copied to `~/.siwah/plugins/<name>/`; no Python code is
+imported. `list` shows enabled/disabled/invalid status, `info` shows component
+counts, and `remove` asks for confirmation unless `--yes` is passed. Loaders read
+plugins at session start, so start a new session after changing one. See
+[Plugins](PLUGINS.md).
 
 ## `kernel`
 

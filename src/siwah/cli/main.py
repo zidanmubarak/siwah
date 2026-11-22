@@ -17,6 +17,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import typer
 import uvicorn
 from rich.console import Console
@@ -76,6 +77,14 @@ from ..mcp.client import (
     save_mcp_config,
     split_command,
 )
+from ..mcp.oauth import (
+    McpAuthRequired,
+    McpOAuthError,
+    OAuthClient,
+    delete_state,
+    oauth_state_path,
+    oauth_status,
+)
 from ..paths import (
     auth_path,
     config_path,
@@ -85,6 +94,14 @@ from ..paths import (
     siwah_home,
     state_path,
     write_private,
+)
+from ..plugins import (
+    PluginError,
+    install_plugin,
+    list_plugins,
+    plugin_mcp_servers,
+    remove_plugin,
+    set_enabled,
 )
 from ..providers.base import ProviderError
 from ..providers.profiles import (
@@ -120,12 +137,14 @@ skills_app = typer.Typer(help="List and view harness skills.", no_args_is_help=T
 memory_app = typer.Typer(help="Inspect layered memory.", no_args_is_help=True)
 kernel_app = typer.Typer(help="Inspect and verify the protected kernel.", no_args_is_help=True)
 mcp_app = typer.Typer(help="Manage MCP servers and tools.", no_args_is_help=True)
+plugin_app = typer.Typer(help="Manage declarative plugin bundles.", no_args_is_help=True)
 app.add_typer(auth_app, name="auth")
 app.add_typer(models_app, name="models")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(kernel_app, name="kernel")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(plugin_app, name="plugin")
 console = Console()
 
 
@@ -1185,6 +1204,109 @@ def models_privacy(
         typer.echo("Only use training=false when the provider contract confirms it.")
 
 
+@plugin_app.command("list")
+def plugin_list() -> None:
+    """List installed declarative plugins."""
+
+    infos = list_plugins()
+    if not infos:
+        typer.echo("No plugins installed. Install one with `siwah plugin install <path>`.")
+        return
+    table = Table(title="siwah plugins")
+    table.add_column("name")
+    table.add_column("version")
+    table.add_column("status")
+    table.add_column("description")
+    for info in infos:
+        status = "invalid" if not info.valid else "enabled" if info.enabled else "disabled"
+        description = info.error or info.description
+        table.add_row(info.name, info.version, status, description)
+    console.print(table)
+
+
+@plugin_app.command("info")
+def plugin_info(name: str = typer.Argument(..., help="Plugin name.")) -> None:
+    """Show one plugin and its content counts."""
+
+    info = next((item for item in list_plugins() if item.name == name), None)
+    if info is None:
+        typer.echo(f"Plugin not installed: {name}", err=True)
+        raise typer.Exit(2)
+    typer.echo(json.dumps(info.__dict__, indent=2, default=str, ensure_ascii=False))
+    typer.echo(
+        "content: "
+        f"skills={len(list((info.path / 'skills').glob('*/SKILL.md')))}, "
+        f"commands={len(list((info.path / 'commands').glob('*.md')))}, "
+        f"subagents={len(list((info.path / 'subagents').glob('*.md')))}, "
+        f"hooks={len(list((info.path / 'hooks').glob('*.json')))}"
+    )
+    mcp_path = info.path / "mcp.json"
+    if mcp_path.is_file():
+        try:
+            payload = json.loads(mcp_path.read_text(encoding="utf-8"))
+            servers = payload.get("servers", {})
+            count = len(servers) if isinstance(servers, dict) else 0
+        except (OSError, json.JSONDecodeError):
+            count = 0
+        typer.echo(f"mcp_servers={count}")
+
+
+@plugin_app.command("install")
+def plugin_install(
+    source: Path = typer.Argument(..., help="Plugin directory or .zip file."),
+    force: bool = typer.Option(False, "--force", help="Replace an installed plugin."),
+) -> None:
+    """Install a declarative plugin bundle."""
+
+    try:
+        info = install_plugin(source, force=force)
+    except PluginError as exc:
+        typer.echo(f"Plugin install failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Installed {info.name} {info.version} at {info.path}")
+
+
+@plugin_app.command("remove")
+def plugin_remove(
+    name: str = typer.Argument(..., help="Plugin name."),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt."),
+) -> None:
+    """Remove an installed plugin."""
+
+    if not yes and not typer.confirm(f"Remove plugin {name}?"):
+        raise typer.Exit(0)
+    try:
+        remove_plugin(name)
+    except PluginError as exc:
+        typer.echo(f"Plugin remove failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Removed plugin {name}")
+
+
+@plugin_app.command("enable")
+def plugin_enable(name: str = typer.Argument(..., help="Plugin name.")) -> None:
+    """Enable a plugin for the next session."""
+
+    try:
+        info = set_enabled(name, True)
+    except PluginError as exc:
+        typer.echo(f"Plugin enable failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Enabled plugin {info.name}")
+
+
+@plugin_app.command("disable")
+def plugin_disable(name: str = typer.Argument(..., help="Plugin name.")) -> None:
+    """Disable a plugin without removing its files."""
+
+    try:
+        info = set_enabled(name, False)
+    except PluginError as exc:
+        typer.echo(f"Plugin disable failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Disabled plugin {info.name}")
+
+
 @skills_app.command("list")
 def skills_list() -> None:
     """List skills in the editable harness."""
@@ -1267,7 +1389,7 @@ def _mcp_discover(
 
 def _mcp_manager() -> McpManager:
     payload = load_mcp_config(strict=True)
-    return McpManager(payload.get("servers", {}))
+    return McpManager(payload.get("servers", {}), include_plugins=True)
 
 
 @mcp_app.command("path")
@@ -1300,6 +1422,8 @@ def mcp_list(
     table.add_column("name")
     table.add_column("transport")
     table.add_column("status")
+    table.add_column("auth")
+    table.add_column("oauth")
     table.add_column("description")
     for info in infos:
         if not info.valid:
@@ -1311,7 +1435,8 @@ def mcp_list(
         else:
             status = "enabled"
             description = info.description
-        table.add_row(info.name, info.transport, status, description)
+        oauth = oauth_status(info.name) if info.auth == "oauth" else "-"
+        table.add_row(info.name, info.transport, status, info.auth, oauth, description)
     console.print(table)
     if not tools:
         typer.echo("Use --tools to discover tool names and descriptions.")
@@ -1338,6 +1463,16 @@ def mcp_add(
     url: str | None = typer.Option(None, "--url", help="Streamable HTTP endpoint."),
     header: list[str] | None = typer.Option(
         None, "--header", help="HTTP header Name=Value; repeatable."
+    ),
+    auth: str | None = typer.Option(None, "--auth", help="HTTP auth mode: none or oauth."),
+    scope: list[str] | None = typer.Option(None, "--scope", help="OAuth scope; repeatable."),
+    client_id: str | None = typer.Option(
+        None, "--client-id", help="Pre-registered OAuth client id."
+    ),
+    client_secret_env: str | None = typer.Option(
+        None,
+        "--client-secret-env",
+        help="Environment variable holding the OAuth client secret.",
     ),
     env: list[str] | None = typer.Option(
         None, "--env", help="stdio environment Name=Value; repeatable."
@@ -1370,7 +1505,19 @@ def mcp_add(
             headers = _mcp_pairs(header, "--header")
             if headers:
                 config["headers"] = headers
+            if auth:
+                config["auth"] = auth
+            if scope:
+                config["scopes"] = list(scope)
+            if client_id:
+                config["client_id"] = client_id
+            if client_secret_env:
+                config["client_secret_env"] = client_secret_env
         else:
+            if auth or scope or client_id or client_secret_env:
+                raise McpError(
+                    "--auth, --scope, --client-id, and --client-secret-env require --url"
+                )
             raise McpError("Provide --command (stdio) or --url (HTTP)")
         if transport:
             requested = transport.strip().lower()
@@ -1405,9 +1552,14 @@ def mcp_remove(
     """Remove an MCP server definition."""
     ensure_harness()
     try:
-        payload = load_mcp_config(strict=True)
+        payload = load_mcp_config(strict=True, include_plugins=False)
         servers = payload.get("servers", {})
         if name not in servers:
+            if name in plugin_mcp_servers():
+                raise McpError(
+                    f"MCP server {name} is provided by a plugin; "
+                    "disable or remove the plugin instead"
+                )
             raise McpError(f"Unknown MCP server: {name}")
         del servers[name]
         path = save_mcp_config(payload)
@@ -1415,6 +1567,67 @@ def mcp_remove(
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
     typer.echo(f"Removed {name} from {path}")
+
+
+@mcp_app.command("auth")
+def mcp_auth(
+    name: str = typer.Argument(..., help="HTTP MCP server configured with auth=oauth."),
+    device: bool = typer.Option(
+        False, "--device", help="Use the device flow instead of a browser callback."
+    ),
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Print the authorization URL without opening a browser."
+    ),
+) -> None:
+    """Authorize an MCP server with OAuth (generic discovery + PKCE)."""
+
+    ensure_harness()
+    try:
+        payload = load_mcp_config(strict=True)
+        servers = payload.get("servers", {})
+        raw = servers.get(name)
+        if not isinstance(raw, dict):
+            raise McpError(f"Unknown MCP server: {name}")
+        config = normalize_server(name, raw)
+        if config["transport"] != "http":
+            raise McpError(f"MCP server {name} is not an HTTP server")
+        if config.get("auth") != "oauth":
+            raise McpError(f"MCP server {name} is not configured with auth=oauth")
+    except McpError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+    client = OAuthClient(
+        name,
+        str(config["url"]),
+        client_id=config.get("client_id"),
+        client_secret_env=config.get("client_secret_env"),
+        scopes=config.get("scopes") or (),
+        notify=lambda message: typer.echo(message),
+    )
+
+    async def run() -> None:
+        try:
+            await client.authorize(device=device, no_browser=no_browser)
+        finally:
+            await client.aclose()
+
+    try:
+        asyncio.run(run())
+    except (McpAuthRequired, McpOAuthError, httpx.HTTPError) as exc:
+        typer.echo(f"OAuth failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"OAuth authenticated: {name}")
+    typer.echo(f"state: {oauth_state_path(name)}")
+
+
+@mcp_app.command("logout")
+def mcp_logout(name: str = typer.Argument(..., help="MCP server to log out.")) -> None:
+    """Remove stored OAuth tokens for an MCP server."""
+
+    ensure_harness()
+    removed = delete_state(name)
+    typer.echo(f"OAuth state removed: {name}" if removed else f"No OAuth state for {name}")
 
 
 @mcp_app.command("show")
@@ -1467,28 +1680,55 @@ def mcp_status(
         typer.echo(f"Unknown MCP server: {server}", err=True)
         raise typer.Exit(2)
 
-    async def run() -> list[tuple[str, str, str, int, float, str]]:
-        rows: list[tuple[str, str, str, int, float, str]] = []
+    async def run() -> list[tuple[str, str, str, str, str, int, float, str]]:
+        rows: list[tuple[str, str, str, str, str, int, float, str]] = []
         try:
             for info in infos:
                 if server is not None and info.name != server:
                     continue
+                oauth = oauth_status(info.name) if info.auth == "oauth" else "-"
                 if not info.valid:
-                    rows.append((info.name, info.transport, "invalid", 0, 0.0, info.error or ""))
+                    rows.append(
+                        (
+                            info.name,
+                            info.transport,
+                            info.auth,
+                            oauth,
+                            "invalid",
+                            0,
+                            0.0,
+                            info.error or "",
+                        )
+                    )
                     continue
                 if not info.enabled:
-                    rows.append((info.name, info.transport, "disabled", 0, 0.0, ""))
+                    rows.append(
+                        (info.name, info.transport, info.auth, oauth, "disabled", 0, 0.0, "")
+                    )
                     continue
                 started = time.perf_counter()
                 tools, errors = await manager.list_tools_report(info.name)
                 elapsed = (time.perf_counter() - started) * 1000.0
                 if info.name in errors:
-                    rows.append((info.name, info.transport, "error", 0, elapsed, errors[info.name]))
+                    rows.append(
+                        (
+                            info.name,
+                            info.transport,
+                            info.auth,
+                            oauth,
+                            "error",
+                            0,
+                            elapsed,
+                            errors[info.name],
+                        )
+                    )
                 else:
                     rows.append(
                         (
                             info.name,
                             info.transport,
+                            info.auth,
+                            oauth,
                             "connected",
                             len(tools.get(info.name, [])),
                             elapsed,
@@ -1503,21 +1743,25 @@ def mcp_status(
     table = Table(title="siwah MCP status")
     table.add_column("server")
     table.add_column("transport")
+    table.add_column("auth")
+    table.add_column("oauth")
     table.add_column("status")
     table.add_column("tools", justify="right")
     table.add_column("latency", justify="right")
     table.add_column("detail")
-    for name, transport, status, count, elapsed, detail in rows:
+    for name, transport, auth, oauth, status, count, elapsed, detail in rows:
         table.add_row(
             name,
             transport,
+            auth,
+            oauth,
             status,
             str(count),
             f"{elapsed:.0f} ms" if elapsed else "-",
             detail,
         )
     console.print(table)
-    if any(row[2] == "error" for row in rows):
+    if any(row[4] == "error" for row in rows):
         raise typer.Exit(1)
 
 
