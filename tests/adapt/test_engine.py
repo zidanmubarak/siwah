@@ -248,6 +248,10 @@ async def test_training_model_is_not_used_for_reflection(tmp_path: Path):
     assert result.status == "privacy_blocked"
     assert calls == []
     assert any(event == "evolve.privacy_blocked" for event, _ in events)
+    budget = engine.governor.load_state()
+    assert budget.cycles_today == 0
+    assert budget.last_cycle_at is None
+    assert any(event == "evolve.spend_skipped" for event, _ in events)
 
 
 @pytest.mark.asyncio

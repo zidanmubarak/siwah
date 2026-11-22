@@ -123,11 +123,12 @@ no `--seed` or `--live`, the command refuses to run.
 | `log` | Show the latest evolution audit events instead of running a cycle. |
 | `--pause` | Pause before the next cycle. |
 | `--resume` | Resume cycles. |
+| `--reset-cooldown` | Clear only the cooldown timestamp after a failed preflight; daily cycles and allowance remain. |
 | `--seed` | Run the deterministic cold-start synthetic cycle. |
-| `--live` | Probe with the real evaluation suite. Requires `SIWAH_LIVE=1` and a positive `--max-allowance`. |
+| `--live` | Probe with the real evaluation suite. Requires `SIWAH_LIVE=1`, a positive `--max-allowance`, and a model marked `training=false`. |
 | `--max-allowance` | Per-probe allowance cap for `--live`. |
 | `--probe-limit` | Limit tasks per live probe (minimum 1). |
-| `--model` | `provider/model-id` for live reflection and probing. |
+| `--model` | `provider/model-id` for live reflection and probing. The model needs a privacy profile; see [Evolution](EVOLUTION.md#before-a-live-cycle). |
 | `--patch-file` | Run the Level 2 gate for a unified diff. |
 | `--harness-dir` | Override the editable harness directory. |
 | `--weekly-allowance` | Weekly allowance budget; falls back to `SIWAH_WEEKLY_ALLOWANCE`. |
@@ -135,19 +136,28 @@ no `--seed` or `--live`, the command refuses to run.
 
 Examples:
 
+```powershell
+$env:SIWAH_LIVE = "1"
+siwah models probe opencode-go/<model-id>
+siwah models privacy opencode-go/<model-id> --training false
+siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
+```
+
 ```bash
 siwah evolve --seed
-siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
 siwah evolve --live --seed --probe-limit 2
 siwah evolve --patch-file fix-edit-file.diff
 siwah evolve --pause
 siwah evolve --resume
+siwah evolve --reset-cooldown
 siwah evolve log
 ```
 
 `--patch-file` cannot be combined with `--seed` or `--live`. `--pause` and
-`--resume` are mutually exclusive. A Level 2 patch exits 0 only when it is
-promoted. See [Evolution](EVOLUTION.md).
+`--resume` are mutually exclusive. `--reset-cooldown` is a standalone recovery
+action after a privacy or configuration preflight; it does not bypass the daily
+cycle or allowance limits. A Level 2 patch exits 0 only when it is promoted. See
+[Evolution](EVOLUTION.md).
 
 ## `rollback`
 
@@ -301,12 +311,20 @@ siwah auth logout PROVIDER
 ```text
 siwah models list [--provider NAME]
 siwah models probe [MODEL_REF] [--provider NAME] [--model ID]
+siwah models privacy MODEL_REF --training false|true|unknown [--retention-days N]
 ```
 
 - `list` reads the live catalog. Without `--provider`, all configured providers
-  are queried. Providers without credentials are reported and skipped.
+  are queried. Providers without credentials are reported and skipped. The
+  `training` column shows the privacy assertion stored in the model profile
+  (`false`, `true`, or `?` when unmarked).
 - `probe` writes a capability profile under
-  `~/.siwah/harness/profiles/<provider>__<model>/`.
+  `~/.siwah/harness/profiles/<provider>__<model>/` and reports
+  `training=unmarked` when the provider catalog has no privacy metadata.
+- `privacy` records a human assertion in an existing profile. Live evolution
+  requires `--training false`; only set it when the provider contract confirms
+  that the model does not train on the data. Re-probing preserves an existing
+  privacy assertion.
 
 ## `skills`
 

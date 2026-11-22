@@ -38,11 +38,31 @@ def test_evolve_live_requires_opt_in_and_budget(tmp_path: Path, monkeypatch):
     missing_env = runner.invoke(app, ["evolve", "--live"])
     assert missing_env.exit_code == 2
     assert "SIWAH_LIVE=1" in missing_env.output
+    assert "$env:SIWAH_LIVE" in missing_env.output
 
     monkeypatch.setenv("SIWAH_LIVE", "1")
     missing_budget = runner.invoke(app, ["evolve", "--live"])
     assert missing_budget.exit_code == 2
     assert "--max-allowance" in missing_budget.output
+
+
+def test_evolve_rejects_an_environment_assignment_as_an_argument(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    result = CliRunner().invoke(app, ["evolve", "SIWAH_LIVE=1"])
+
+    assert result.exit_code == 2
+    assert "environment assignment" in result.output
+    assert "$env:SIWAH_LIVE" in result.output
+
+
+def test_evolve_reset_cooldown(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SIWAH_CONFIG", raising=False)
+
+    result = CliRunner().invoke(app, ["evolve", "--reset-cooldown"])
+
+    assert result.exit_code == 0, result.output
+    assert "cooldown cleared" in result.output
 
 
 def test_evolve_patch_file_guards(tmp_path: Path, monkeypatch):

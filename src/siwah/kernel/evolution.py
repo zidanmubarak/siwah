@@ -121,11 +121,27 @@ class EvolutionEngine:
             result = await self._run_cycle(observations, baseline=baseline, started=started)
             return result
         finally:
-            # Cover reflection, proposal, rejection, probe errors, cancellation,
-            # and promotion failures with exactly one persisted cycle entry.
             spent, duration = self._measure_spend(started, result.probe if result else None)
-            self.governor.record_cycle(spent, duration)
-            self.audit("evolve.spend", {"allowance": spent, "duration_s": duration})
+            # A privacy preflight fails before any model call. Recording it would
+            # consume the daily cycle and start a cooldown for work that never
+            # happened, making the actionable fix impossible to retry.
+            preflight_failed = (
+                result is not None and result.status == "privacy_blocked" and spent <= 0.0
+            )
+            if preflight_failed:
+                self.audit(
+                    "evolve.spend_skipped",
+                    {
+                        "allowance": spent,
+                        "duration_s": duration,
+                        "reason": result.reason if result is not None else None,
+                    },
+                )
+            else:
+                # Cover reflection, proposal, rejection, probe errors,
+                # cancellation, and promotion failures with one cycle entry.
+                self.governor.record_cycle(spent, duration)
+                self.audit("evolve.spend", {"allowance": spent, "duration_s": duration})
             if result is not None:
                 result.spent_allowance = spent
                 result.duration_s = duration

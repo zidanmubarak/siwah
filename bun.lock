@@ -7,7 +7,7 @@
     },
     "ui/tui": {
       "name": "@siwah/tui",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "dependencies": {
         "@opentui/core": "0.8.3",
         "@opentui/solid": "0.8.3",

@@ -3,6 +3,38 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [1.0.2] — 2026-11-22
+
+Patch release for live evolution and installation ergonomics.
+
+### Fixed
+
+- Evolution error messages now show the exact PowerShell and bash environment
+  syntax for `SIWAH_LIVE`; passing `SIWAH_LIVE=1` as a command argument is
+  explained instead of looking like a usage error.
+- A privacy preflight failure no longer consumes a cycle or starts a cooldown.
+  `siwah evolve --reset-cooldown` clears a cooldown left by older failed
+  preflights without resetting daily cycle or allowance accounting.
+- Candidate parsing normalizes common model drift (`scope: "agent"`, string
+  evidence, string level/paths) and retries one schema repair before failing.
+- Re-probing a model preserves an existing privacy assertion instead of silently
+  clearing it.
+
+### Added
+
+- `siwah models privacy <provider/model> --training false|true|unknown` records
+  the human privacy assertion required by live evolution.
+- `siwah models list` shows the `training` status and `siwah models probe`
+  reports `training=unmarked` with the exact remediation command.
+- PyPI installation instructions, including the separate TUI binary and
+  `SIWAH_TUI_BINARY` fallback.
+
+### Changed
+
+- Evolution, CLI, configuration, security, and troubleshooting docs now cover
+  live prerequisites, privacy profiles, cooldowns, candidate repair, and the two
+  expected TUI binary locations.
+
 ## [1.0.1] — 2026-11-19
 
 Patch release for the public install and release pipeline.

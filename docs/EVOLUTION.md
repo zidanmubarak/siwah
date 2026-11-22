@@ -55,6 +55,50 @@ observe → reflect → propose → probe → gate → compose → promote → c
 Level 0–1 activation happens on the next session, not mid-session, so the prompt
 cache is not invalidated. Level 2 restarts through the supervisor.
 
+## Before a live cycle
+
+A live cycle needs a provider, a model, an allowance budget, and an explicit
+privacy assertion.
+
+PowerShell:
+
+```powershell
+$env:SIWAH_LIVE = "1"
+siwah models probe opencode-go/<model-id>
+siwah models privacy opencode-go/<model-id> --training false
+siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
+```
+
+macOS/Linux:
+
+```bash
+export SIWAH_LIVE=1
+siwah models probe opencode-go/<model-id>
+siwah models privacy opencode-go/<model-id> --training false
+siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
+```
+
+`siwah models probe` reports `training=unmarked` when the provider's catalog does
+not expose privacy metadata. Evolution refuses an unmarked model because the
+reflector sees redacted session data. Only set `training=false` when the
+provider contract confirms that the model does not train on the data. `models
+probe` preserves an existing privacy assertion instead of overwriting it.
+
+If a privacy or configuration preflight fails before any model call, the cycle
+is not recorded and no cooldown is consumed. Older releases recorded the cycle;
+use `siwah evolve --reset-cooldown` once to clear a stuck cooldown. It does not
+reset the daily cycle count or recorded allowance.
+
+## Candidate normalization
+
+The proposer is an LLM, so the parser accepts a small amount of schema drift
+before rejecting a candidate. For example, `scope: "agent"` is treated as the
+global harness, `level: "1"` becomes `1`, and a single evidence sentence becomes
+a one-item list. If the JSON still fails schema validation, the proposer asks
+the model for one repair with the exact schema. A second failure ends the cycle
+with an audit event; no harness change is applied. Inspect `siwah evolve log`
+before retrying.
+
 ## Probing tiers
 
 | Tier | What it does |
@@ -239,8 +283,12 @@ replacement for reviewing a diff.
 
 | Symptom | Likely cause |
 |---|---|
-| `--live requires SIWAH_LIVE=1` | Export `SIWAH_LIVE=1` in the same process. |
-| `--live requires a positive --max-allowance` | Pass a positive per-probe cap. |
+| `--live requires SIWAH_LIVE=1` | Set it in the same process. PowerShell: `$env:SIWAH_LIVE="1"`; bash: `export SIWAH_LIVE=1`. |
+| `SIWAH_LIVE=1 siwah evolve ...` fails in PowerShell | PowerShell does not use leading `NAME=value` assignments. Set `$env:SIWAH_LIVE="1"` first. |
+| `--live requires a positive --max-allowance` | Pass a positive per-probe cap, for example `0.05`. |
+| `model ... is not marked training=false` | Run `siwah models probe <model>`, then `siwah models privacy <model> --training false` only if the provider contract confirms it. |
+| `budget_blocked` / `cooldown active` | Wait for the cooldown, or use `siwah evolve --reset-cooldown` after a failed preflight. Direct paid retries remain rate-limited. |
+| `invalid candidate` / `scope` or `evidence` errors | The parser normalizes common drift and retries one schema repair. If it still fails, inspect `siwah evolve log` and report the candidate shape. |
 | `Non-seed evolution requires real evaluation` | Use `--seed`, or `--live` with the requirements above. |
 | `evolution is paused` | Run `siwah evolve --resume` or remove the pause state. |
 | `kernel enforcement integrity check failed` | Run `siwah kernel verify`; restore protected paths before evolving. |

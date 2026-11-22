@@ -197,7 +197,7 @@ fallback, use `siwah run "..." --ui plain`.
 - If resizing leaves artifacts, resize once more or restart the TUI; include the
   terminal and size in a report.
 
-macOS Terminal and iTerm2 are not verified for 1.0.1. See
+macOS Terminal and iTerm2 are not verified for 1.0.2. See
 [Terminal support](TERMINAL-SUPPORT.md).
 
 ### The TUI exits immediately
@@ -268,6 +268,73 @@ SIWAH_HELDOUT_DIR=/path/to/heldout siwah eval --suite heldout
 - `SIWAH_EVOLVE=off` disables evolution.
 - A dirty repository blocks promotion and rollback.
 - `siwah kernel verify` must pass before a cycle starts.
+
+### `--live` still says `SIWAH_LIVE=1`
+
+PowerShell does not use leading `NAME=value` assignments:
+
+```powershell
+$env:SIWAH_LIVE = "1"
+siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
+```
+
+bash and zsh:
+
+```bash
+export SIWAH_LIVE=1
+siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
+```
+
+The variable must be set in the same shell/process, and the model must also pass
+the privacy check below.
+
+### Evolution is privacy-blocked
+
+The reflector refuses a model that is not explicitly marked as not training:
+
+```bash
+siwah models probe opencode-go/<model-id>
+siwah models privacy opencode-go/<model-id> --training false
+```
+
+Only use `training=false` when the provider contract confirms it. `models probe`
+shows `training=unmarked` when the provider catalog does not expose privacy
+metadata. A privacy preflight does not consume a cycle or start a cooldown.
+
+### Evolution is in cooldown
+
+A cooldown normally follows a cycle that performed real work. After a failed
+privacy or configuration preflight, older releases may have left a cooldown
+behind:
+
+```bash
+siwah evolve --reset-cooldown
+```
+
+This clears only the cooldown timestamp. It does not reset the daily cycle count
+or recorded allowance. Do not use it to bypass deliberate paid-evaluation
+limits.
+
+### Evolution candidate is invalid
+
+The proposer normalizes common model drift such as `scope: "agent"` or a single
+string in `evidence`, then asks for one schema repair if needed. If the cycle
+still fails, inspect the audit log:
+
+```bash
+siwah evolve log
+```
+
+No harness change is applied when validation fails. Report the candidate shape
+if the error persists; do not edit evaluation tasks to make it pass.
+
+### Why are there two `siwah-tui` binaries?
+
+The bootstrap builds `~/.siwah/src/ui/tui/dist/siwah-tui[.exe]` and copies it to
+`~/.siwah/bin/siwah-tui[.exe]`. The launcher prefers `~/.siwah/bin/`; the source
+build output is a fallback and is rebuilt by `/update`. Both files are expected.
+You normally do not need to manage them. A PyPI install has no source checkout,
+so only the binary you place in `~/.siwah/bin/` exists.
 
 ### Kernel manifest mismatch
 

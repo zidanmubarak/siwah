@@ -157,6 +157,10 @@ used only by the local fallback.
 - Promotion requires a one-use approval bound to the checked candidate and HEAD.
 - A dirty repository is refused rather than overwritten.
 - Budgets and kill switches limit unattended spend.
+- Live reflection requires a model profile that explicitly says
+  `training=false`. An unmarked model is refused. The operator records this
+  assertion with `siwah models privacy`; it is a policy decision, not a
+  cryptographic guarantee from the provider.
 
 The gate is heuristic. It is not a formal proof that a candidate is safe.
 

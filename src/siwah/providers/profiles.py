@@ -102,6 +102,51 @@ def load_profile(provider: str, model: str, root: Path | None = None) -> ModelPr
     return ModelProfile.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
 
 
+def merge_privacy(profile: ModelProfile, previous: ModelProfile | None) -> ModelProfile:
+    """Keep a human privacy assertion when a fresh probe has no privacy data."""
+
+    if previous is None:
+        return profile
+    training = (
+        profile.privacy.training
+        if profile.privacy.training is not None
+        else previous.privacy.training
+    )
+    retention = (
+        profile.privacy.retention_days
+        if profile.privacy.retention_days is not None
+        else previous.privacy.retention_days
+    )
+    return profile.model_copy(
+        update={"privacy": PrivacyProfile(training=training, retention_days=retention)}
+    )
+
+
+def set_privacy(
+    provider: str,
+    model: str,
+    *,
+    training: bool | None,
+    retention_days: int | None = None,
+    root: Path | None = None,
+) -> tuple[ModelProfile, Path]:
+    """Persist an explicit privacy assertion without re-probing the model."""
+
+    profile = load_profile(provider, model, root)
+    resolved_retention = (
+        retention_days if retention_days is not None else profile.privacy.retention_days
+    )
+    updated = profile.model_copy(
+        update={
+            "privacy": PrivacyProfile(
+                training=training,
+                retention_days=resolved_retention,
+            )
+        }
+    )
+    return updated, save_profile(updated, root)
+
+
 async def probe_model(
     adapter: ProviderAdapter,
     provider: str,

@@ -169,6 +169,21 @@ class BudgetGovernor:
         self._write(updated)
         return updated
 
+    def reset_cooldown(self, *, now: datetime | None = None) -> BudgetState:
+        """Clear only the cooldown timestamp after a failed preflight.
+
+        Daily cycle counts and recorded allowance stay intact; this is a
+        recovery action for a cycle that could not do any useful work.
+        """
+
+        current = now or datetime.now(UTC)
+        state = self.load_state(now=current)
+        if state.corrupt:
+            raise RuntimeError("budget state is unreadable; repair or remove it")
+        updated = state.model_copy(update={"last_cycle_at": None})
+        self._write(updated)
+        return updated
+
     def snapshot(self, *, now: datetime | None = None) -> dict[str, object]:
         current = now or datetime.now(UTC)
         state = self.load_state(now=current)

@@ -47,9 +47,15 @@ class Reflector:
         try:
             profile = self.profile_loader(provider, model_id)
         except (OSError, ValueError) as exc:
-            raise PrivacyError(f"privacy profile is missing for {model}") from exc
+            raise PrivacyError(
+                f"privacy profile is missing for {model}; run `siwah models probe {model}` first"
+            ) from exc
         if profile.privacy.training is not False:
-            raise PrivacyError(f"model {model} is not marked training=false")
+            raise PrivacyError(
+                f"model {model} is not marked training=false; "
+                f"verify the provider contract, then run "
+                f"`siwah models privacy {model} --training false`"
+            )
         return profile
 
     async def reflect(

@@ -66,9 +66,29 @@ siwah --version
 `/update` fast-forwards this checkout and rebuilds the binary. A wheel-only
 install can show an update notice but cannot apply it.
 
+### PyPI
+
+```bash
+uv tool install siwah       # recommended
+# or: pip install siwah
+siwah --version
+```
+
+The wheel includes the CLI, daemon, and evaluation engine. It does not include
+the platform-specific TUI binary. Download the matching
+`siwah-tui-<platform>-<arch>` asset from the
+[latest release](https://github.com/zidanmubarak/siwah/releases) into
+`~/.siwah/bin/` (Windows: `siwah-tui.exe`), or set `SIWAH_TUI_BINARY` to its
+path. Without a binary, use `siwah run "..." --ui plain`.
+
+Update a PyPI install with `uv tool upgrade siwah` or `pip install -U siwah`.
+`/update` only applies to the editable source checkout from the bootstrap or
+manual checkout. Evaluation from a wheel needs `SIWAH_EVAL_DIR` pointing at a
+source checkout's `evals/` tree.
+
 ### TestPyPI verification
 
-The 1.0.1 wheel is published to PyPI and also verified on TestPyPI. It is not
+The 1.0.2 wheel is published to PyPI and also verified on TestPyPI. It is not
 the recommended install when you want `/update` to fast-forward a checkout. See
 [Releasing](RELEASING.md) for the verification steps.
 

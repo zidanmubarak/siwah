@@ -87,7 +87,14 @@ from ..paths import (
     write_private,
 )
 from ..providers.base import ProviderError
-from ..providers.profiles import ModelProfile, probe_model, save_profile
+from ..providers.profiles import (
+    ModelProfile,
+    load_profile,
+    merge_privacy,
+    probe_model,
+    save_profile,
+    set_privacy,
+)
 from ..providers.registry import ProviderRegistry, RoleRouter
 from ..server.app import create_app
 from ..server.runtime import DaemonRuntime
@@ -506,9 +513,19 @@ def evolve(
     action: str | None = typer.Argument(None, help="Subcommand: log."),
     pause: bool = typer.Option(False, "--pause", help="Pause evolution cycles."),
     resume: bool = typer.Option(False, "--resume", help="Resume evolution cycles."),
+    reset_cooldown: bool = typer.Option(
+        False,
+        "--reset-cooldown",
+        help="Clear the cooldown after a failed preflight (privacy/config).",
+    ),
     seed: bool = typer.Option(False, "--seed", help="Run the synthetic cold-start cycle."),
     live: bool = typer.Option(
-        False, "--live", help="Probe the candidate with the real eval suite."
+        False,
+        "--live",
+        help=(
+            "Probe with the real eval suite. Requires SIWAH_LIVE=1, "
+            "a positive --max-allowance, and a model marked training=false."
+        ),
     ),
     max_allowance: float | None = typer.Option(
         None, "--max-allowance", help="Per-probe allowance cap for --live."
@@ -530,7 +547,14 @@ def evolve(
     ),
     limit: int = typer.Option(50, "--limit", min=1, max=500),
 ) -> None:
-    """Run one Level 0-1 evolution cycle, pause it, or show the audit log."""
+    """Run one Level 0-1 evolution cycle, pause it, or show the audit log.
+
+    Live mode uses the configured provider. In PowerShell set the environment
+    variable first: `$env:SIWAH_LIVE="1"`. In bash use `export SIWAH_LIVE=1`.
+    The selected model needs a privacy profile with `training=false`; create it
+    with `siwah models probe <model>` and `siwah models privacy <model>
+    --training false` only when the provider contract confirms it.
+    """
 
     if action == "log":
         state = load_state()
@@ -544,7 +568,20 @@ def evolve(
             typer.echo(json.dumps(event, ensure_ascii=False))
         return
     if action is not None:
-        typer.echo("usage: siwah evolve [log] [--pause|--resume|--seed]", err=True)
+        if "=" in action or action.upper().startswith("SIWAH_"):
+            typer.echo(
+                "It looks like you passed an environment assignment as an argument.\n"
+                'PowerShell: $env:SIWAH_LIVE="1"\n'
+                "bash: export SIWAH_LIVE=1\n"
+                "Then rerun: siwah evolve --live --model <provider/model> "
+                "--max-allowance <amount>",
+                err=True,
+            )
+        else:
+            typer.echo(
+                "usage: siwah evolve [log] [--pause|--resume|--reset-cooldown|--seed]",
+                err=True,
+            )
         raise typer.Exit(2)
     if pause and resume:
         typer.echo("--pause and --resume are mutually exclusive", err=True)
@@ -558,6 +595,19 @@ def evolve(
         set_paused(False)
         audit_event("evolve.resumed", {"by": "cli"})
         typer.echo("evolution resumed")
+        return
+    if reset_cooldown:
+        if pause or resume or seed or live or patch_file is not None:
+            typer.echo("--reset-cooldown cannot be combined with other actions", err=True)
+            raise typer.Exit(2)
+        try:
+            config = load_config()
+        except ConfigError as exc:
+            typer.echo(f"Config error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        BudgetGovernor(config.budget).reset_cooldown()
+        audit_event("evolve.cooldown_reset", {"by": "cli"})
+        typer.echo("evolution cooldown cleared")
         return
     if patch_file is not None:
         if seed or live:
@@ -597,10 +647,20 @@ def evolve(
         raise typer.Exit(0 if result.status == "promoted" else 1)
     if live:
         if os.environ.get("SIWAH_LIVE") != "1":
-            typer.echo("--live requires SIWAH_LIVE=1", err=True)
+            typer.echo(
+                "--live requires SIWAH_LIVE=1.\n"
+                'PowerShell: $env:SIWAH_LIVE="1"\n'
+                "bash: export SIWAH_LIVE=1\n"
+                "Then rerun: siwah evolve --live --model <provider/model> "
+                "--max-allowance <amount>",
+                err=True,
+            )
             raise typer.Exit(2)
         if max_allowance is None or max_allowance <= 0:
-            typer.echo("--live requires a positive --max-allowance", err=True)
+            typer.echo(
+                "--live requires a positive --max-allowance (for example 0.05)",
+                err=True,
+            )
             raise typer.Exit(2)
     if not seed and not live:
         typer.echo(
@@ -869,6 +929,18 @@ def auth_logout(provider: str = typer.Argument(...)) -> None:
     typer.echo("Removed." if removed else "No stored key for that provider.")
 
 
+def _training_label(provider: str, model: str) -> str:
+    try:
+        profile = load_profile(provider, model)
+    except (OSError, ValueError):
+        return "?"
+    if profile.privacy.training is False:
+        return "false"
+    if profile.privacy.training is True:
+        return "true"
+    return "?"
+
+
 @models_app.command("list")
 def models_list(
     provider: str | None = typer.Option(None, "--provider", help="Provider name."),
@@ -908,6 +980,7 @@ def models_list(
     table.add_column("id")
     table.add_column("ctx", justify="right")
     table.add_column("out", justify="right")
+    table.add_column("training")
     table.add_column("tools")
     table.add_column("reasoning")
 
@@ -928,10 +1001,12 @@ def models_list(
         typer.echo(f"Model list failed: {exc}", err=True)
         raise typer.Exit(1) from exc
     for label, model in rows:
+        provider_name, _, model_name = label.partition("/")
         table.add_row(
             label,
             str(model.context_window or "?"),
             str(model.max_output or "?"),
+            _training_label(provider_name, model_name or model.id),
             str(model.supports_tools),
             str(model.supports_reasoning),
         )
@@ -972,6 +1047,11 @@ def models_probe(
                 reference.model,
                 model_info=info.model_dump(mode="json") if info else None,
             )
+            try:
+                previous = load_profile(reference.provider, reference.model)
+            except (OSError, ValueError):
+                previous = None
+            profile = merge_privacy(profile, previous)
             profile.probed_at = datetime.now(UTC).isoformat()
             return profile, save_profile(profile)
         finally:
@@ -982,12 +1062,79 @@ def models_probe(
     except (ProviderError, AuthError, ConfigError) as exc:
         typer.echo(f"Probe failed: {exc}", err=True)
         raise typer.Exit(1) from exc
+    training = (
+        "false"
+        if profile.privacy.training is False
+        else "true"
+        if profile.privacy.training is True
+        else "unmarked"
+    )
+    retention = (
+        "?" if profile.privacy.retention_days is None else str(profile.privacy.retention_days)
+    )
     typer.echo(f"Profile: {path}")
     typer.echo(
         f"api={profile.api} tools={profile.supports_tools} "
         f"parallel={profile.parallel_tool_calls} reasoning={profile.reasoning_field} "
-        f"cache={profile.cache_mode}"
+        f"cache={profile.cache_mode} training={training} retention={retention}"
     )
+    if profile.privacy.training is None:
+        typer.echo(
+            "evolution requires training=false; verify the provider contract, then run: "
+            f"siwah models privacy {reference.provider}/{reference.model} --training false"
+        )
+
+
+@models_app.command("privacy")
+def models_privacy(
+    model_ref: str = typer.Argument(..., help="provider/model-id."),
+    training: str = typer.Option(..., "--training", help="false, true, or unknown."),
+    retention_days: int | None = typer.Option(None, "--retention-days", min=0),
+) -> None:
+    """Record a human privacy assertion used by live evolution."""
+
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    try:
+        reference = _resolve_model_ref(config, model_ref, None, None)
+    except (ValueError, ConfigError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+    normalized = training.strip().lower()
+    value: bool | None
+    if normalized in {"false", "no", "0"}:
+        value = False
+    elif normalized in {"true", "yes", "1"}:
+        value = True
+    elif normalized in {"unknown", "unset", "none"}:
+        value = None
+    else:
+        typer.echo("--training must be false, true, or unknown", err=True)
+        raise typer.Exit(2)
+
+    try:
+        _, path = set_privacy(
+            reference.provider,
+            reference.model,
+            training=value,
+            retention_days=retention_days,
+        )
+    except (OSError, ValueError):
+        typer.echo(
+            f"No profile for {model_ref}; run `siwah models probe {model_ref}` first.",
+            err=True,
+        )
+        raise typer.Exit(2) from None
+
+    label = "false" if value is False else "true" if value is True else "unknown"
+    typer.echo(f"privacy updated: {reference.provider}/{reference.model} training={label}")
+    typer.echo(f"Profile: {path}")
+    if value is False:
+        typer.echo("Only use training=false when the provider contract confirms it.")
 
 
 @skills_app.command("list")

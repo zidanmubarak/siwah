@@ -2,7 +2,7 @@
 
 siwah's TUI is built with OpenTUI and Solid. It targets modern terminals with
 ANSI, Unicode, and reasonably fast rendering. This page records what was actually
-verified for the 1.0.1 release and what remains untested.
+verified for the 1.0.2 release and what remains untested.
 
 “Verified” means there is release evidence for that environment: an end-to-end
 PTY run, a captured terminal session, or the TUI test and snapshot suite. It is
@@ -65,7 +65,7 @@ not a recording and may not match your font, theme, or terminal exactly.
   tested target. Git Bash is recommended for the `bash` tool so POSIX syntax
   behaves consistently.
 - **macOS:** iTerm2 or Terminal.app are expected to work but are untested at
-  1.0.1. Use a UTF-8 locale.
+  1.0.2. Use a UTF-8 locale.
 - **Linux:** a modern terminal with truecolor. tmux and SSH are verified, but
   nested multiplexers and unusual `TERM` values can change color and key
   behavior.

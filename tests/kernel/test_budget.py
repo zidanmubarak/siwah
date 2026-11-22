@@ -40,6 +40,20 @@ def test_cycle_cooldown_and_daily_reset(tmp_path: Path):
     assert governor.load_state(now=next_day).weekly_spent == 0.4
 
 
+def test_reset_cooldown_preserves_the_daily_cycle_count(tmp_path: Path):
+    now = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
+    governor = BudgetGovernor(_config(), state_path=tmp_path / "budget.json")
+    governor.record_cycle(0.2, 60.0, now=now)
+
+    assert not governor.can_start(now=now).allowed
+
+    state = governor.reset_cooldown(now=now)
+
+    assert state.last_cycle_at is None
+    assert state.cycles_today == 1
+    assert governor.can_start(now=now).allowed
+
+
 def test_weekly_reserve_and_wall_time(tmp_path: Path):
     now = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
     governor = BudgetGovernor(

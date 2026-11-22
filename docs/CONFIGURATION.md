@@ -60,7 +60,7 @@ reasoning capabilities come from the provider's live models endpoint.
 
 ## Providers
 
-A provider is configuration, not code. In 1.0.1 the implemented adapter family is
+A provider is configuration, not code. In 1.0.2 the implemented adapter family is
 `openai_chat`, which covers OpenAI Chat Completions-compatible endpoints.
 Other API family names are rejected at startup.
 
@@ -80,7 +80,7 @@ connect_timeout_s = 15
 
 | Field | Default | Meaning |
 |---|---|---|
-| `api` | `openai_chat` | Adapter family. Only `openai_chat` is implemented in 1.0.1. |
+| `api` | `openai_chat` | Adapter family. Only `openai_chat` is implemented in 1.0.2. |
 | `base_url` | required | Base URL for chat completions; trailing slashes are stripped. |
 | `models_url` | `null` | Models catalog endpoint. Without it, the provider cannot be listed or probed. |
 | `auth.scheme` | `bearer` | `bearer` sends `Authorization: Bearer <key>`; `none` sends no auth. |
@@ -123,6 +123,30 @@ API family, tool support, parallel tool calls, reasoning field, context and
 output limits, edit format, cache mode, privacy metadata, allowance behavior, and
 quirks. A profile may also contain a `system_append.md` overlay. Probe before
 relying on an overlay, especially for model IDs containing slashes or dots.
+
+### Privacy assertions
+
+Live evolution sends redacted session observations to a reflector model. It
+refuses a model unless the profile explicitly says:
+
+```toml
+[privacy]
+training = false
+```
+
+A fresh probe may leave this unmarked because not every provider catalog exposes
+training or retention metadata. Mark it only when the provider contract confirms
+the model does not train on the data:
+
+```bash
+siwah models probe opencode-go/<model-id>
+siwah models privacy opencode-go/<model-id> --training false
+```
+
+`siwah models list` shows the current assertion in its `training` column.
+`models probe` preserves an existing assertion, so re-probing does not silently
+clear a human decision. A model with `training = true` is rejected for
+reflection even if it is configured as a fallback.
 
 ## Roles
 

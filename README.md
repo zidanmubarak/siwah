@@ -18,7 +18,7 @@
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/bun-1.3.14%2B-black.svg" alt="Bun 1.3.14+"></a>
 </p>
 
-> **Status:** `1.0.1` is the current public release. The source bootstrap is the
+> **Status:** `1.0.2` is the current public release. The source bootstrap is the
 > primary install; the same release is published to PyPI and verified from a
 > clean environment.
 
@@ -86,9 +86,28 @@ Open a new terminal and run `siwah`. The checkout in `~/.siwah/src` is what
 The editable install keeps the TUI source discoverable, so `/update` can
 fast-forward the checkout and rebuild the binary. The compiled TUI is written to
 `ui/tui/dist/siwah-tui[.exe]` and is found automatically. For a manual checkout,
-see [Getting started](docs/GETTING-STARTED.md). The 1.0.1 wheel is published to
-PyPI and also verified on TestPyPI; the source checkout remains the primary
-install for `/update`. See [Releasing](docs/RELEASING.md).
+see [Getting started](docs/GETTING-STARTED.md). The source checkout remains the
+primary install for `/update`. See [Releasing](docs/RELEASING.md).
+
+### PyPI
+
+```bash
+uv tool install siwah       # recommended
+# or: pip install siwah
+```
+
+The wheel contains the CLI, daemon, and evaluation engine, but not the
+platform-specific TUI binary. Download the matching
+`siwah-tui-<platform>-<arch>` asset from the
+[latest release](https://github.com/zidanmubarak/siwah/releases), place it in
+`~/.siwah/bin/` (Windows: `siwah-tui.exe`), or point `SIWAH_TUI_BINARY` at it.
+Without a binary, `siwah run "..." --ui plain` works; a source checkout can
+also run the TUI with Bun.
+
+PyPI installs update with `uv tool upgrade siwah` or `pip install -U siwah`.
+`/update` applies only to the editable source checkout installed by the
+bootstrap. Evaluation from a wheel needs `SIWAH_EVAL_DIR` pointing at a source
+checkout's `evals/` tree.
 
 ## Quickstart
 
@@ -224,20 +243,33 @@ only. See [Evaluation](docs/EVALUATION.md).
 | 1 | Multi-file harness data | T1 screening against a baseline, then a T2 gate |
 | 2 | Core code outside protected paths | Isolated worktree, diff limits, tests, lint, type check, smoke boot, T0–T3 |
 
-```bash
-siwah evolve --seed                          # deterministic cold-start cycle
+```powershell
+$env:SIWAH_LIVE = "1"
+siwah models probe opencode-go/<model-id>
+siwah models privacy opencode-go/<model-id> --training false
 siwah evolve --live --model opencode-go/<model-id> --max-allowance 0.05
+```
+
+```bash
+export SIWAH_LIVE=1
+siwah evolve --seed                          # deterministic cold-start cycle
 siwah evolve --live --seed --probe-limit 2   # cheap live smoke
 siwah evolve --pause
+siwah evolve --reset-cooldown                # after a privacy/config preflight failure
 siwah evolve log
 siwah evolve --patch-file fix.diff           # Level 2 gate
 siwah rollback evo-N                         # restore a harness tag
 ```
 
-`--live` requires `SIWAH_LIVE=1`, a real model, and a positive per-probe
-`--max-allowance`. Without `--live`, only an explicit `--seed` cycle runs; it is
-a smoke fixture, not evidence of coding quality. Promotions are committed and
+`--live` requires `SIWAH_LIVE=1` in the same process, a real model, and a
+positive per-probe `--max-allowance`. The model must also have a privacy profile
+with `training=false`; `siwah models probe` reports `training=unmarked` when the
+provider catalog does not state it. Only mark `training=false` when the provider
+contract confirms it. Without `--live`, only an explicit `--seed` cycle runs; it
+is a smoke fixture, not evidence of coding quality. Promotions are committed and
 tagged, and the canary monitor records samples against configured thresholds.
+A privacy or config preflight failure no longer consumes a cycle; use
+`siwah evolve --reset-cooldown` if an older failed cycle left a cooldown behind.
 
 Automatic post-session evolution is available when `[evolution].auto` is enabled
 and the session signals and cooldown conditions are met. It does not opt into
@@ -255,13 +287,13 @@ wall time. See [Evolution](docs/EVOLUTION.md).
 - The path guard is an **application-level guard**. A deliberately malicious
   `bash` command can still write outside the workspace unless the opt-in sandbox
   is configured. The local sandbox fallback is not isolation.
-- The 1.0.1 provider adapter is OpenAI Chat Completions-compatible only.
+- The 1.0.2 provider adapter is OpenAI Chat Completions-compatible only.
 - Evolution's canary and automatic rollback path is not end-to-end; production
   session sampling is not connected. Level 2 recovery from a delayed daemon boot
   failure is not fully journaled.
 - ACP is minimal: text prompts only, no client permission dialogs, no
   `loadSession`, and no filesystem/terminal methods.
-- macOS Terminal and iTerm2 were not verified for 1.0.1. Windows Terminal, tmux,
+- macOS Terminal and iTerm2 were not verified for 1.0.2. Windows Terminal, tmux,
   SSH, and Windows/WSL environments were verified. See
   [Terminal support](docs/TERMINAL-SUPPORT.md).
 - The full heldout suite is not public; the public samples are for format
@@ -320,7 +352,7 @@ and [Releasing](docs/RELEASING.md).
 
 ## Status and roadmap
 
-`1.0.1` is the current public release. The source bootstrap is the supported
+`1.0.2` is the current public release. The source bootstrap is the supported
 install. Near-term work focuses on connecting production canary sampling and
 rollback, completing delayed-boot recovery for Level 2, broader provider
 families, stronger isolation, and macOS terminal verification. No dates are
