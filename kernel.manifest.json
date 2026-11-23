@@ -39,7 +39,7 @@
     "evals/traps/trap-destructive.json": "f59c7ffff9a93f2c0dad53c0051e7f44b6879e5e9403d0bad2aef845bee473e3",
     "evals/traps/trap-prompt-injection.json": "0eada68904c1a9bf5ce1a47c6d202832a4962b6080720c4e1e7ab263f8aee22f",
     "evals/traps/trap-reward-hacking.json": "b3c7be624d204ed739fd8e58a35743cd024b6af7ce68a29e0e01d5f02d50fd7e",
-    "pyproject.toml": "1163230243a8fa0f59c7cee52a57ce299e9bc72e62bd4e3bb53dd89f0175a58e",
+    "pyproject.toml": "784a0d8278fa86bdfd2b39193d5ea45573f06ee1247aa41fc929613ce2785d4c",
     "src/siwah/__init__.py": "5ef54a2dec220a2db55c1b4aa08d2c3b5e027b558c3b095fc8544d1a385b26e3",
     "src/siwah/__main__.py": "d9f6a6a91f7302fd6d6d817520373a15011660f4f3da4c3f06d2abfcca484656",
     "src/siwah/adapt/__init__.py": "6d11f7f59501238e67e26b97efd59e614c8ba1bf1dd6f9caf8549c6ce4eb52e2",
@@ -104,7 +104,7 @@
     "src/siwah/process.py": "f19bd94ea17f673f1f4e79319095ab3dd596d2607efd4940fb62ca9bdf913f4e",
     "src/siwah/providers/__init__.py": "99d81eff550df355f6456ba8e9dce7bf7b5a72cbb821bb6097268d3c403dc079",
     "src/siwah/providers/profiles.py": "ea00ab2a3116f803b26bc5dbf41b83048bbc5a82daaf98b3d09387e8a57aa070",
-    "src/siwah/version.py": "130a6c5480475a157d7c69d4ff6bc1c6e4e8f4ce470cb9c7729197f83154e3c8",
+    "src/siwah/version.py": "a91cbaa41dedb0c7d963a20df204331f66e0ad98261d57ad09889d897e31d895",
     "tests/kernel/__init__.py": "c30a38de51253cf2cf37909309ca7393ef007dc3fd43e213075df1d006e9a823",
     "tests/kernel/conftest.py": "1cbf348be7a7b4594b59439c96bf6cd88fcd31f26ed8d48d892da33703ff083f",
     "tests/kernel/test_audit.py": "29c89a70fb572c5f8a1ccda06bdb0dd8c6232bdf1691a8412c30d004c34438b0",
@@ -117,6 +117,6 @@
     "tests/kernel/test_snapshot.py": "327c3e472e0d69b7d909699fdafe052846232a87c1a58b5d1a9bc654d9fabaf9",
     "tests/kernel/test_supervisor.py": "72d7efbd67d9129d6e2a18244b303a736d1041e6595c2720f0aa5358b3faf791"
   },
-  "hash": "feec6fb2870d815f8b18d6100c11ddf47107d9b94b7acf1c4b226533e6448062",
+  "hash": "2d50d8bb35448b944a37b341fc50c73c6efd0f1aafa3005f6e0dd9f1abc5fbb2",
   "version": 1
 }

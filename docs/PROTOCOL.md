@@ -1,6 +1,6 @@
 # Daemon protocol
 
-Status: **stable for siwah 1.0.2**. Protocol version: `0.1`.
+Status: **stable for siwah 1.0.3**. Protocol version: `0.1`.
 
 The protocol version is independent of the application version. Within protocol
 `0.1`, changes are additive: new optional fields and endpoints may appear, but
@@ -33,7 +33,7 @@ described here is an implementation detail.
 ```json
 {
   "name": "siwah",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "protocol": "0.1",
   "daemon_started_at": "2026-11-19T00:00:00Z",
   "default_effort": null,

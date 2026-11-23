@@ -117,7 +117,7 @@ emits `run.end`, and leaves the session resumable.
 
 ## Provider layer
 
-Providers are configuration, not code. In 1.0.2 the implemented adapter family is
+Providers are configuration, not code. In 1.0.3 the implemented adapter family is
 `openai_chat`; other families are rejected at startup. The adapter normalizes
 content, reasoning, tool calls, usage, errors, and finish events into one
 internal schema, so the loop does not branch on the provider.
@@ -168,7 +168,7 @@ The daemon exposes a versioned local HTTP + SSE API. The full contract is in
 - generated TypeScript types committed under `ui/tui/src/api/schema.d.ts`;
 - CI regenerates the OpenAPI document and types and fails on drift.
 
-The protocol version is independent of the application version. At 1.0.2 the
+The protocol version is independent of the application version. At 1.0.3 the
 protocol is `0.1`; changes within that minor are additive. Omission of the
 `X-Siwah-Protocol` header is supported for local clients; an incompatible
 supplied header returns `409`.
