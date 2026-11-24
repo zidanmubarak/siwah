@@ -11,7 +11,7 @@ import {
   untrack,
 } from "solid-js"
 
-import type { Checkpoint } from "../api/client"
+import type { Checkpoint, MessageAttachment } from "../api/client"
 import { commands, fuzzyMatch, helpText } from "../commands"
 import type { DialogState, Effort, UiMessage } from "../state"
 import { type ThemeName, themeNames } from "../theme"
@@ -25,15 +25,261 @@ import {
   windowStart,
 } from "../util"
 import { useDimensions, useStore, useTheme } from "./context"
+import { DiffView } from "./DiffView"
 import { Modal } from "./Modal"
 import { Pulse } from "./Motion"
 import { MetricRow, Notice, SectionLabel } from "./Surface"
 import { TodoPanel } from "./TodoPanel"
 
-export function DialogHost(props: {
-  onCommand: (name: string) => void
-  onHistory: (text: string) => void
+function ChangesDialog(props: {
+  scope: "turn" | "workspace"
+  checkpointId?: string
+  onClose: () => void
 }) {
+  const store = useStore()
+  const theme = useTheme()
+  const [selected, setSelected] = createSignal<string | null>(null)
+  const [data] = createResource(
+    () => props.scope,
+    (scope) => store.reviewChanges(scope, props.checkpointId).catch(() => null),
+  )
+  const current = () => data()?.files.find((file) => file.path === selected())
+  const [detail] = createResource(current, (file) =>
+    store
+      .reviewChanges(
+        props.scope,
+        data()?.base ?? props.checkpointId,
+        file.path,
+        data()?.end ?? undefined,
+      )
+      .then((response) => response?.files.find((item) => item.path === file.path) ?? null)
+      .catch(() => null),
+  )
+  const title = () =>
+    props.scope === "workspace"
+      ? "workspace changes"
+      : props.checkpointId
+        ? "turn changes"
+        : "latest turn changes"
+  return (
+    <Show
+      when={current()}
+      fallback={
+        <Show
+          when={!data.loading && data()?.available && (data()?.files.length ?? 0) > 0}
+          fallback={
+            <>
+              <Modal title={title()} width={76} height={7}>
+                <text fg={theme.muted}>
+                  {data.loading
+                    ? "Loading changes..."
+                    : data()?.available
+                      ? "No visible changes."
+                      : "Changes are unavailable."}
+                </text>
+              </Modal>
+              <EscapeHint onClose={props.onClose} />
+            </>
+          }
+        >
+          <ListDialog
+            title={`${title()}${data()?.truncated ? " - limited to 100 files" : ""}`}
+            searchable
+            items={(data()?.files ?? []).map((file) => ({
+              label: `${file.status}  ${file.path}`,
+              detail: file.old_path ? `from ${file.old_path}` : "",
+              value: file.path,
+            }))}
+            onSelect={setSelected}
+            onClose={props.onClose}
+          />
+        </Show>
+      }
+    >
+      {(file) => (
+        <>
+          <Modal title={file().path} width={118} height={28} escapeCloses={false}>
+            <Show
+              when={!detail.loading && detail()?.patch}
+              fallback={
+                <text fg={theme.muted}>
+                  {detail.loading ? "Loading patch..." : "No text patch available for this file."}
+                </text>
+              }
+            >
+              <DiffView
+                patch={detail()?.patch ?? ""}
+                path={file().path}
+                expanded
+                disclosure={false}
+              />
+            </Show>
+            <Show when={!detail.loading && detail()?.truncated}>
+              <text fg={theme.warning}>Patch truncated.</text>
+            </Show>
+          </Modal>
+          <EscapeHint onClose={() => setSelected(null)} />
+        </>
+      )}
+    </Show>
+  )
+}
+
+function TimingDialog(props: { onClose: () => void }) {
+  const store = useStore()
+  const [timing] = createResource(() => store.latestTiming().catch(() => null))
+  const phases = [
+    ["total", "Total elapsed"],
+    ["model", "Model and provider retries"],
+    ["permission", "Waiting for permission"],
+    ["tool", "Tool work"],
+    ["verifier", "Verification"],
+    ["checkpoint", "Checkpoints"],
+    ["hook", "Hooks"],
+    ["other", "Other session work"],
+  ] as const
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(2)} s`
+  return (
+    <Modal title="latest task timing" width={68} height={16}>
+      <Show
+        when={timing()}
+        fallback={
+          <text>
+            {timing.loading ? "Loading timing..." : "No timing recorded for this session."}
+          </text>
+        }
+      >
+        {(data) => (
+          <For each={phases}>
+            {([key, label]) => (
+              <MetricRow label={label} value={seconds(data().durations[key] ?? 0)} />
+            )}
+          </For>
+        )}
+      </Show>
+      <EscapeHint onClose={props.onClose} />
+    </Modal>
+  )
+}
+
+type RestorePromptProps = {
+  canRestorePrompt: () => boolean
+  onRestorePrompt: (text: string, attachments: MessageAttachment[]) => void
+}
+
+function PendingDialog(props: RestorePromptProps & { onClose: () => void }) {
+  const store = useStore()
+  const [selected, setSelected] = createSignal<string | null>(null)
+  const [busy, setBusy] = createSignal(false)
+  const corrections = () => store.messages().filter((message) => message.unapplied)
+  const correction = () => corrections().find((entry) => entry.id === selected())
+  const queued = () => store.queuedPrompts().find((entry) => entry.id === selected())
+  const preview = () => {
+    const item = queued()
+    return (
+      correction()?.content ??
+      ([item?.blockedReason, item?.text].filter(Boolean).join(" · ") || "Image message")
+    )
+  }
+  const back = () => {
+    if (!busy()) setSelected(null)
+  }
+  const perform = async (action: string) => {
+    if (busy()) return
+    const note = correction()
+    const item = queued()
+    if (action === "edit" && !props.canRestorePrompt()) {
+      store.notify("Clear or send the current draft before restoring a prompt.", "warning")
+      return
+    }
+    setBusy(true)
+    try {
+      if (note) {
+        if (action === "retry") {
+          if (await store.sendPrompt(note.content)) {
+            await store.resolveCorrection(note.id)
+            props.onClose()
+          }
+        } else if (await store.resolveCorrection(note.id)) {
+          props.onClose()
+          props.onRestorePrompt(note.content, [])
+        }
+      } else if (item) {
+        const removed = await store.removeQueuedPrompt(item.id)
+        if (!removed) return
+        if (action === "edit") {
+          props.onClose()
+          props.onRestorePrompt(removed.content, removed.attachments)
+        } else {
+          store.notify("Queued prompt cancelled", "info")
+          setSelected(null)
+        }
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Show
+      when={correction() || queued() || busy()}
+      fallback={
+        <ListDialog
+          title="pending inputs"
+          searchable
+          items={[
+            ...store
+              .queuedPrompts()
+              .filter((item) => item.id.startsWith("queued_"))
+              .map((item, index) => ({
+                label: `${item.blockedReason ? "Blocked" : "Queued"} ${index + 1}  ${item.text || "Image message"}`,
+                detail: [
+                  item.blockedReason,
+                  item.text,
+                  item.attachmentCount ? `${item.attachmentCount} attachment(s)` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+                value: item.id,
+              })),
+            ...corrections().map((item) => ({
+              label: "Unapplied correction",
+              detail: item.content,
+              value: item.id,
+            })),
+          ]}
+          onSelect={setSelected}
+          onClose={props.onClose}
+        />
+      }
+    >
+      <ListDialog
+        title={
+          correction()
+            ? "unapplied correction"
+            : queued()?.blockedReason
+              ? "blocked prompt"
+              : "queued prompt"
+        }
+        items={[
+          { label: "Return to editor", detail: preview(), value: "edit" },
+          correction()
+            ? { label: "Send as follow-up", detail: preview(), value: "retry" }
+            : { label: "Cancel queued prompt", detail: preview(), value: "cancel" },
+        ]}
+        onSelect={(action) => void perform(action)}
+        onClose={back}
+        onDismiss={back}
+      />
+    </Show>
+  )
+}
+
+export function DialogHost(
+  props: RestorePromptProps & {
+    onCommand: (name: string) => void
+    onHistory: (text: string) => void
+  },
+) {
   const store = useStore()
   const dialog = () => store.dialog()
   const theme = useTheme()
@@ -83,6 +329,12 @@ export function DialogHost(props: {
         )
       case "cost":
         return <CostDialog onClose={close} />
+      case "timing":
+        return <TimingDialog onClose={close} />
+      case "pending":
+        return <PendingDialog {...props} onClose={close} />
+      case "find":
+        return <TranscriptSearchDialog query={current.query} onClose={close} />
       case "permission-preview":
         return (
           <Modal title="permission request · read only" width={90} height={26}>
@@ -104,6 +356,14 @@ export function DialogHost(props: {
         return <DoctorDialog onClose={close} />
       case "evolution":
         return <EvolutionDialog onClose={close} />
+      case "changes":
+        return (
+          <ChangesDialog
+            scope={current.scope}
+            checkpointId={current.checkpointId}
+            onClose={close}
+          />
+        )
       case "checkpoints":
         return <CheckpointsDialog onClose={close} />
       case "rewind":
@@ -148,9 +408,12 @@ function ListDialog(props: {
   items: ListItem[]
   onSelect: (value: string) => void
   onClose: () => void
+  onDismiss?: () => void
   hint?: string
   initial?: number
   searchable?: boolean
+  initialQuery?: string
+  searchItems?: (query: string) => ListItem[]
 }) {
   const theme = useTheme()
   const dimensions = useDimensions()
@@ -159,9 +422,10 @@ function ListDialog(props: {
   const labelWidth = () => Math.max(18, Math.floor(contentWidth() * 0.46))
   const detailWidth = () => Math.max(8, contentWidth() - labelWidth() - 1)
   const [selected, setSelected] = createSignal(props.initial ?? 0)
-  const [query, setQuery] = createSignal("")
+  const [query, setQuery] = createSignal(props.initialQuery ?? "")
   const rowBudget = () => Math.max(1, Math.min(10, dimensions().height - 14))
   const items = createMemo(() => {
+    if (props.searchItems) return props.searchItems(query())
     if (!props.searchable || !query()) return props.items
     return props.items
       .map((item) => ({ item, score: fuzzyMatch(query(), `${item.label} ${item.value}`) }))
@@ -238,13 +502,19 @@ function ListDialog(props: {
       width={78}
       height={Math.max(10, Math.min(items().length, rowBudget()) + 10)}
       scrollable={false}
+      escapeCloses={props.onDismiss ? false : undefined}
+      onDismiss={props.onDismiss}
     >
       <box flexDirection="column" flexGrow={1} minHeight={0} width="100%">
         <Show when={props.searchable} fallback={null}>
           <text fg={theme.accentAlt} bg={theme.panelAlt} paddingX={1}>{`filter: ${query()}`}</text>
         </Show>
         <Show when={items().length === 0} fallback={null}>
-          <text fg={theme.dim}>No matching entries.</text>
+          <text fg={theme.dim}>
+            {props.searchItems && !query().trim()
+              ? "Type to search this transcript."
+              : "No matching entries."}
+          </text>
         </Show>
         <For each={visible()}>
           {(item) => (
@@ -276,7 +546,7 @@ function ListDialog(props: {
           </text>
         </Show>
         <text fg={theme.dim} wrapMode="word">
-          {`${props.searchable ? "type to filter · " : ""}${props.hint ? `${props.hint} · ` : ""}↑/↓ move · PgUp/PgDn jump · Enter select · Esc close`}
+          {`${props.searchItems && items().length ? `${selected() + 1}/${items().length} · ` : props.searchable ? "type to filter · " : ""}${props.hint ? `${props.hint} · ` : ""}↑/↓ move · PgUp/PgDn jump · Enter select · Esc close`}
         </text>
       </box>
     </Modal>
@@ -651,7 +921,7 @@ function SimpleDialog(props: { title: string; lines: string[]; onClose: () => vo
 
 export function turnAnchors(messages: UiMessage[]) {
   return messages
-    .filter((message) => message.role === "user")
+    .filter((message) => message.role === "user" && !message.unapplied)
     .map((message, turn) => ({
       label: `Turn ${turn + 1}: ${ellipsis(message.content.split("\n")[0] ?? "", 58)}`,
       detail: relativeTime(message.createdAt),
@@ -665,6 +935,49 @@ function TurnsDialog(props: { onClose: () => void }) {
     <ListDialog
       title="turns"
       items={turnAnchors(store.messages())}
+      onSelect={(id) => {
+        store.focusMessage(id)
+        props.onClose()
+      }}
+      onClose={props.onClose}
+    />
+  )
+}
+
+function TranscriptSearchDialog(props: { query: string; onClose: () => void }) {
+  const store = useStore()
+  const search = (query: string): ListItem[] => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return []
+    return store.messages().flatMap((message) => {
+      const sources = [
+        { label: message.role, content: message.content },
+        ...message.diffs.map((diff) => ({ label: "diff", content: `${diff.path}\n${diff.patch}` })),
+        ...message.toolCalls.flatMap((tool) => [
+          { label: tool.name, content: `${tool.name} ${tool.summary}` },
+          { label: tool.name, content: tool.error ?? "" },
+          { label: tool.name, content: tool.output },
+        ]),
+      ]
+      for (const source of sources) {
+        const index = source.content.toLowerCase().indexOf(needle)
+        if (index < 0) continue
+        const excerpt = source.content
+          .slice(Math.max(0, index - 12), index + needle.length + 76)
+          .replace(/\s+/g, " ")
+          .trim()
+        return [{ label: `${source.label} · ${excerpt}`, detail: excerpt, value: message.id }]
+      }
+      return []
+    })
+  }
+  return (
+    <ListDialog
+      title="find in session"
+      searchable
+      initialQuery={props.query}
+      searchItems={search}
+      items={[]}
       onSelect={(id) => {
         store.focusMessage(id)
         props.onClose()

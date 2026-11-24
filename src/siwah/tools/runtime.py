@@ -349,7 +349,7 @@ def _html_to_text(value: str) -> str:
 
 def default_tools() -> list[Tool]:
     from .fs import EditFileTool, GlobTool, GrepTool, ReadFileTool, WriteFileTool
-    from .harness import MemoryWriteTool, RecallTool, SkillManageTool, SkillViewTool
+    from .harness import MemoryWriteTool, RecallTool, SkillListTool, SkillManageTool, SkillViewTool
     from .mcp import McpTool
     from .output import ToolOutputTool
     from .repo import RefsTool, RepoMapTool, SymbolsTool
@@ -369,6 +369,7 @@ def default_tools() -> list[Tool]:
         MemoryWriteTool(),
         SkillManageTool(),
         SkillViewTool(),
+        SkillListTool(),
         RecallTool(),
         RepoMapTool(),
         SymbolsTool(),

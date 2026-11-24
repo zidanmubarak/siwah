@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-labelledby="siwah-preview-title siwah-preview-desc">
   <title id="siwah-preview-title">siwah terminal interface</title>
-  <desc id="siwah-preview-desc">A stylized terminal window showing session tabs, a tool card, a diff, and the siwah prompt box.</desc>
+  <desc id="siwah-preview-desc">A stylized terminal window showing session tabs, tool activity, the Hornbill welcome, and the siwah prompt box.</desc>
   <defs>
     <clipPath id="window">
       <rect x="40" y="40" width="1120" height="620" rx="14"/>
@@ -54,9 +54,13 @@
     <text x="142" y="303" class="ui green" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#8ED3A0">+ 2      return a + b</text>
 
     <!-- welcome -->
-    <text x="600" y="392" class="ui gold" font-size="34" font-weight="bold" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#d4a63a">siwah</text>
-    <text x="600" y="424" class="ui muted" font-size="18" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#9CAAC0">Build something. Understand anything.</text>
-    <text x="600" y="452" class="ui dim" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#73839C">/sessions resume    /help explore</text>
+    <g transform="translate(368 350) scale(8)" shape-rendering="crispEdges">
+      <path fill="#d4a63a" d="M7 0h3v1h-3z M6 1h5v1h-5z M5 2h4v1h-4z M5 3h2v1h-2z M8 3h1v1h-1z M4 4h5v1h-5z M3 5h6v1h-6z M2 6h7v1h-7z M1 7h7v1h-7z M0 8h4v1h-4z M5 8h2v1h-2z M0 9h2v1h-2z M5 9h3v1h-3z"/>
+      <path fill="#d7dae0" d="M11 1h2v1h-2z M9 2h5v1h-5z M9 3h6v1h-6z M13 4h2v1h-2z"/>
+    </g>
+    <text x="511" y="388" fill="#d7dae0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="28" font-weight="700">siwah</text>
+    <text x="511" y="414" fill="#9CAAC0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">a coding agent that learns with you</text>
+    <text x="600" y="465" class="ui dim" font-size="14" text-anchor="middle">/sessions resume    /help explore</text>
 
     <!-- prompt box -->
     <rect x="90" y="500" width="1020" height="92" rx="10" fill="#151B24" stroke="#d4a63a" stroke-width="2"/>

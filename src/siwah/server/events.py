@@ -44,6 +44,23 @@ class EventBus:
     def history(self, after: int = 0) -> list[EventEnvelope]:
         return [event for event in self._events if event.seq > after]
 
+    def run_phase(self) -> dict[str, str] | None:
+        for event in reversed(self._events):
+            if event.type == "verifier":
+                phase = {
+                    "baseline": "checking baseline",
+                    "running": "running checks",
+                    "retry": "repairing failed checks",
+                }.get(str(event.data.get("status")))
+                return {"label": phase, "since": event.ts} if phase else None
+            if event.type == "status":
+                if event.data.get("phase") == "finishing_hooks":
+                    return {"label": "finishing hooks", "since": event.ts}
+                return None
+            if event.type == "run.end":
+                return None
+        return None
+
     def last_seq(self) -> int:
         return self._sequence
 

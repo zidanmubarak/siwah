@@ -79,5 +79,37 @@ async def test_pre_tool_hook_blocks_a_tool_call(config, store, sample_repo: Path
     assert "blocked" in calls[0]["result"]["error"]
 
 
+async def test_completion_reports_pending_hooks(config, store, sample_repo, monkeypatch):
+    home = tmp_path_home(store)
+    monkeypatch.setenv("SIWAH_HOME", str(home))
+    marker = home / "lifecycle"
+    for event in ("SessionEnd", "Stop"):
+        script = (
+            "from pathlib import Path; import sys; "
+            "with_path = Path(sys.argv[1]); "
+            "with_path.write_text((with_path.read_text() if with_path.exists() else '') + sys.argv[2])"
+        )
+        _write_hook(
+            home,
+            event,
+            {"event": event, "command": [sys.executable, "-c", script, str(marker), event]},
+        )
+    adapter = ScriptedAdapter([outcome(text="Done.")], config.providers["mock"])
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    saw_phase = False
+
+    async def emit(event, data):
+        nonlocal saw_phase
+        if event == "status" and data.get("phase") == "finishing_hooks":
+            saw_phase = True
+            assert not marker.exists()
+        if event == "run.end":
+            assert marker.read_text() == "SessionEndStop"
+
+    result = await make_loop(config, store, adapter).run(session, "Finish", emit=emit)
+    assert result.error is None
+    assert saw_phase
+
+
 def tmp_path_home(store) -> Path:
     return Path(store.path).parent / "home"

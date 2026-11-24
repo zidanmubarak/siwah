@@ -31,6 +31,7 @@ READ_ONLY_TOOLS = {
     "refs",
     "tool_output",
     "skill_view",
+    "skill_list",
     "recall",
     "todo",
 }

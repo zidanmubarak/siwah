@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -28,6 +29,48 @@ def session_todos(store: Store, session_id: str) -> list[dict]:
     stored = store.get_session(session_id)
     assert stored is not None
     return stored.metadata["todos"]
+
+
+async def test_batched_reads_overlap_and_keep_message_order(
+    config, store, sample_repo, monkeypatch
+):
+    paths = {sample_repo / "README.md", sample_repo / "math_utils.py"}
+    barrier = threading.Barrier(2, timeout=3)
+    original = Path.read_bytes
+
+    def read_bytes(path):
+        if path in paths:
+            barrier.wait()
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    adapter = ScriptedAdapter(
+        [
+            outcome(
+                tool_calls=[
+                    tool_call("read_file", {"path": "README.md"}, "first"),
+                    tool_call("read_file", {"path": "math_utils.py"}, "second"),
+                ]
+            ),
+            outcome(text="Done."),
+        ],
+        config.providers["mock"],
+    )
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+
+    async def emit(_event, _data):
+        pass
+
+    result = await make_loop(config, store, adapter).run(session, "Read both files", emit=emit)
+    assert result.error is None
+    calls = store.get_tool_calls(session.id)
+    assert [(call["arguments"]["path"], call["status"]) for call in calls] == [
+        ("README.md", "ok"),
+        ("math_utils.py", "ok"),
+    ]
+    assert [
+        message.tool_call_id for message in adapter.requests[-1].messages if message.role == "tool"
+    ] == [call["id"] for call in calls]
 
 
 @pytest.mark.asyncio
@@ -243,9 +286,11 @@ async def test_interactive_runs_are_not_capped_by_the_hard_step_budget(
         }
     )
     calls = [
-        outcome(tool_calls=[tool_call("read_file", {"path": "README.md"}, f"call_{index}")])
+        outcome(tool_calls=[tool_call("read_file", {"path": f"file_{index}.txt"}, f"call_{index}")])
         for index in range(55)
     ]
+    for index in range(55):
+        (sample_repo / f"file_{index}.txt").write_text(f"File {index}", encoding="utf-8")
     adapter = ScriptedAdapter(
         [*calls, outcome(text="Finished after a long task.")], config.providers["mock"]
     )
@@ -600,6 +645,38 @@ async def test_completion_reconciles_last_in_progress_todo(config, store: Store,
     assert todos[0]["status"] == "done"
 
 
+async def test_alternating_successful_reads_trigger_stall_guard(config, store, sample_repo):
+    cfg = config.model_copy(update={"agent": config.agent.model_copy(update={"stall_limit": 3})})
+    adapter = ScriptedAdapter(
+        [
+            outcome(
+                tool_calls=[
+                    tool_call(
+                        "read_file",
+                        {"path": "README.md" if index % 2 == 0 else "math_utils.py"},
+                        f"read_{index}",
+                    )
+                ]
+            )
+            for index in range(5)
+        ],
+        cfg.providers["mock"],
+    )
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    events = []
+
+    async def emit(event, data):
+        events.append((event, data))
+
+    result = await make_loop(cfg, store, adapter).run(
+        session, "Read the project", emit=emit, extend_budget=True
+    )
+    assert result.error == "stalled"
+    assert result.steps == 5
+    assert all(call["status"] == "ok" for call in store.get_tool_calls(session.id))
+    assert any(event == "completion.check" and data["status"] == "stall" for event, data in events)
+
+
 @pytest.mark.asyncio
 async def test_repeated_identical_calls_do_not_extend_budget(
     config, store: Store, sample_repo: Path
@@ -640,7 +717,9 @@ async def test_repeated_identical_calls_do_not_extend_budget(
 
 
 @pytest.mark.asyncio
-async def test_self_check_nudge_after_long_edit_run(config, store: Store, sample_repo: Path):
+async def test_final_answer_does_not_trigger_extra_self_check(
+    config, store: Store, sample_repo: Path
+):
     config = config.model_copy(
         update={
             "agent": config.agent.model_copy(
@@ -686,8 +765,9 @@ async def test_self_check_nudge_after_long_edit_run(config, store: Store, sample
         extend_budget=True,
     )
     assert result.error is None
-    assert result.steps == 3
-    assert any(
+    assert result.steps == 2
+    assert result.text == "Fixed the bug."
+    assert not any(
         event_type == "completion.check" and data.get("reason") == "self_check"
         for event_type, data in events
     )

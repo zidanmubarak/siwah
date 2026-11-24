@@ -621,3 +621,52 @@ test("context events are not overwritten by usage refreshes", () => {
   store.usage({ ...base, context_tokens: 20_000, context_percent: 2 })
   expect(store.contextSummary()).toBe("ctx 10k/1M 1%")
 })
+
+test("hydration keeps recorded tool outcomes, durations and full output", () => {
+  const base = { created_at: "2026-11-24T00:00:00Z", seq: 1 }
+  const messages = hydrateMessages([
+    {
+      ...base,
+      id: "answer",
+      role: "assistant",
+      tool_calls: ["failed", "skipped", "unfinished"].map((id) => ({
+        id,
+        name: "edit_file",
+        arguments: {},
+        arguments_valid: true,
+      })),
+      tool_outcomes: {
+        failed: { status: "error", error: "edit failed", duration_ms: 37 },
+        skipped: { status: "skipped", duration_ms: 0 },
+      },
+      tool_outputs: { failed: "full error output" },
+    },
+    { ...base, id: "row1", role: "tool", tool_call_id: "failed", content: "short error" },
+    { ...base, id: "row2", role: "tool", tool_call_id: "skipped", content: "superseded" },
+  ])
+  expect(messages[0].toolCalls).toMatchObject([
+    { status: "error", error: "edit failed", durationMs: 37, output: "full error output" },
+    { status: "skipped", durationMs: 0, output: "superseded" },
+    { status: "cancelled", durationMs: null },
+  ])
+})
+
+test("a skipped live tool gets a card even without a tool start event", () => {
+  const store = readyStore()
+  store.messages([message({ id: "answer" })])
+  internal(store).handleEvent({
+    seq: 1,
+    type: "tool.end",
+    data: {
+      message_id: "answer",
+      tool_call_id: "skip",
+      name: "edit_file",
+      status: "skipped",
+      output: "superseded",
+      arguments_summary: "src/parser.ts",
+    },
+  })
+  expect(store.messages()[0].toolCalls).toMatchObject([
+    { id: "skip", status: "skipped", summary: "src/parser.ts", output: "superseded" },
+  ])
+})

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import fnmatch
 import hashlib
@@ -67,6 +68,9 @@ class ReadFileTool(Tool):
         )
         if not allowed:
             return ToolResult.failure(reason or "Read denied")
+        return await asyncio.to_thread(self._read, context, path, arguments)
+
+    def _read(self, context: ToolContext, path: Path, arguments: dict[str, Any]) -> ToolResult:
         if not path.is_file():
             return ToolResult.failure(f"File not found: {arguments['path']}")
         raw = path.read_bytes()
@@ -399,6 +403,9 @@ class GlobTool(Tool):
         )
         if not allowed:
             return ToolResult.failure(reason or "Search denied")
+        return await asyncio.to_thread(self._read, context, root, arguments)
+
+    def _read(self, context: ToolContext, root: Path, arguments: dict[str, Any]) -> ToolResult:
         if not root.is_dir():
             return ToolResult.failure(f"Not a directory: {root}")
         limit = min(max(int(arguments.get("limit", 200)), 1), 2000)
@@ -440,6 +447,9 @@ class GrepTool(Tool):
         )
         if not allowed:
             return ToolResult.failure(reason or "Search denied")
+        return await asyncio.to_thread(self._read, context, root, arguments)
+
+    def _read(self, context: ToolContext, root: Path, arguments: dict[str, Any]) -> ToolResult:
         try:
             flags = 0 if arguments.get("case_sensitive", True) else re.IGNORECASE
             expression = re.compile(arguments["pattern"], flags)

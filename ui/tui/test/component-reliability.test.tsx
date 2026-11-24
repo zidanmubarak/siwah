@@ -1,7 +1,12 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { type Renderable, TextRenderable } from "@opentui/core"
+import {
+  type Renderable,
+  ScrollBoxRenderable,
+  TextareaRenderable,
+  TextRenderable,
+} from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import { createSignal } from "solid-js"
 
@@ -456,6 +461,246 @@ test("prompt chrome exposes session allowance beside context", async () => {
   try {
     await setup.renderOnce()
     expect(setup.captureCharFrame()).toContain("$0.123456")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("the changes panel opens a net patch at 60 columns", async () => {
+  const store = readyStore()
+  const requested: (string | undefined)[] = []
+  store.reviewChanges = async (_scope, _checkpoint, path) => {
+    requested.push(path)
+    return {
+      scope: "turn",
+      available: true,
+      truncated: false,
+      files: [
+        {
+          path: "example.py",
+          status: "M",
+          truncated: false,
+          patch: path
+            ? "--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-old text\n+new text\n"
+            : "",
+        },
+      ],
+    }
+  }
+  store.openDialog({ type: "changes", scope: "turn" })
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 60,
+    height: 28,
+  })
+  try {
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("example.py")
+    expect(requested).toEqual([undefined])
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("new text")
+    expect(requested).toEqual([undefined, "example.py"])
+    setup.mockInput.pressEscape()
+    await settle()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("latest turn changes")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("switching draft targets restores the cursor and image attachments", async () => {
+  const store = readyStore()
+  const image = imageFile()
+  const received: PromptImage[][] = []
+  store.draftTarget({ id: "a", carry: false })
+  const setup = await testRender(
+    () => (
+      <PromptBox
+        mode="build"
+        stats="ctx"
+        onReady={() => {}}
+        onChange={(next) => store.promptText(next)}
+        onSubmit={(_text, images) => {
+          received.push(images)
+          return false
+        }}
+      />
+    ),
+    { width: 100, height: 15 },
+  )
+  try {
+    await setup.renderOnce()
+    await setup.mockInput.pasteBracketedText(image.path)
+    await setup.renderOnce()
+    const draft = store.promptText()
+    expect(draft).toContain("[Image 1]")
+    const input = descendants(setup.renderer.root).find(
+      (node): node is TextareaRenderable => node instanceof TextareaRenderable,
+    )
+    if (!input) throw new Error("Composer did not mount")
+    input.cursorOffset = 2
+    store.promptText("draft for b")
+    store.draftTarget({ id: "b", carry: false })
+    await setup.renderOnce()
+    setup.mockInput.pressEnter()
+    await settle()
+    expect(received.at(-1)).toEqual([])
+    store.promptText(draft)
+    store.draftTarget({ id: "a", carry: false })
+    await setup.renderOnce()
+    expect(input.cursorOffset).toBe(2)
+    setup.mockInput.pressEnter()
+    await settle()
+    expect(received.at(-1)).toHaveLength(1)
+  } finally {
+    setup.renderer.destroy()
+    rmSync(image.dir, { recursive: true })
+  }
+})
+
+test("pending inputs return a queued prompt and its image to the composer", async () => {
+  const store = readyStore()
+  store.queuedPrompts([{ id: "queued_1", text: "Use [Image 1]", attachmentCount: 1 }])
+  const attachment = { mime: "image/png", name: "fixture.png", data: "aW1hZ2U=" }
+  const removed: string[] = []
+  const sent: unknown[] = []
+  const internals = store as unknown as { api: unknown }
+  internals.api = {
+    removeQueuedPrompt: async (_sessionId: string, id: string) => {
+      removed.push(id)
+      return { id, content: "Use [Image 1]", attachments: [attachment] }
+    },
+    sendMessage: async (_sessionId: string, text: string, images: unknown) => {
+      sent.push({ text, images })
+      return { status: "queued", run_id: "queued_2" }
+    },
+  }
+  store.running(true)
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 100,
+    height: 30,
+  })
+  try {
+    await setup.renderOnce()
+    setup.mockInput.typeText("/pending")
+    setup.mockInput.pressEnter()
+    await settle()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("pending inputs")
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Return to editor")
+    setup.mockInput.pressEnter()
+    await settle()
+    await setup.renderOnce()
+    expect(removed).toEqual(["queued_1"])
+    expect(store.dialog()).toBeNull()
+    expect(store.promptText()).toBe("Use [Image 1]")
+    expect(setup.captureCharFrame()).toContain("fixture.png")
+    setup.mockInput.pressEnter()
+    await settle()
+    expect(sent).toEqual([{ text: "Use [Image 1]", images: [attachment] }])
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("pending inputs can queue an unapplied correction explicitly", async () => {
+  const store = readyStore()
+  const content = "Use the other fixture."
+  store.messages([
+    {
+      id: "late",
+      role: "user",
+      content,
+      reasoning: "",
+      streaming: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      toolCalls: [],
+      diffs: [],
+      reasoningOpen: false,
+      unapplied: true,
+    },
+  ])
+  const submitted: string[] = []
+  const resolved: string[] = []
+  store.sendPrompt = async (prompt) => {
+    submitted.push(prompt)
+    return true
+  }
+  store.resolveCorrection = async (id) => {
+    resolved.push(id)
+    return true
+  }
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 85,
+    height: 29,
+  })
+  try {
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Correction not applied")
+    store.openDialog({ type: "pending" })
+    await setup.renderOnce()
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Send as follow-up")
+    expect(submitted).toEqual([])
+    setup.mockInput.pressArrow("down")
+    setup.mockInput.pressEnter()
+    await settle()
+    expect(submitted).toEqual([content])
+    expect(resolved).toEqual(["late"])
+    expect(store.dialog()).toBeNull()
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("transcript search finds tool output and paths, then jumps to the selected message", async () => {
+  const store = readyStore()
+  store.messages([
+    message({ id: "first", content: "The parser is ready." }),
+    message({ id: "second", diffs: [{ path: "src/parser.ts", patch: "" }] }),
+    message({
+      id: "third",
+      toolCalls: [
+        {
+          id: "tool-search",
+          name: "bash",
+          summary: "run tests",
+          status: "error",
+          output: "Test failed: parser expected token",
+          error: null,
+          durationMs: 10,
+        },
+      ],
+    }),
+  ])
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 75,
+    height: 28,
+  })
+  try {
+    await setup.renderOnce()
+    setup.mockInput.typeText("/find parser")
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    const frame = setup.captureCharFrame()
+    expect(frame).toContain("find in session")
+    expect(frame).toContain("1/3")
+    setup.mockInput.pressArrow("down")
+    setup.mockInput.pressArrow("down")
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("3/3")
+    expect(setup.captureCharFrame()).toContain("parser expected token")
+    const transcript = descendants(setup.renderer.root).find((node) => node.id === "transcript")
+    if (!(transcript instanceof ScrollBoxRenderable)) throw new Error("Transcript not mounted")
+    const jump = spyOn(transcript, "scrollChildIntoView")
+    setup.mockInput.pressEnter()
+    await settle()
+    expect(jump).toHaveBeenCalledWith("msg-third", { align: "start" })
+    expect(store.dialog()).toBeNull()
   } finally {
     setup.renderer.destroy()
   }

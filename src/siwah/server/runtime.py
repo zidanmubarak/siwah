@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..adapt.observer import _CORRECTION_HINTS
+from ..adapt.state import load_state
 from ..adapt.trigger import EvolutionTrigger
 from ..auth import AuthStore
 from ..config import Config, ConfigError, update_agent_effort
@@ -25,8 +27,15 @@ from ..core.context import (
 )
 from ..core.loop import AgentLoop
 from ..core.storage import Session, Store
+from ..core.timing import RunTiming, active_timing
 from ..core.types import MessageAttachment, ModelInfo, Usage
-from ..harness.memory import init_agents_file, init_project_memory, quick_note, read_memory
+from ..harness.memory import (
+    init_agents_file,
+    init_project_memory,
+    quick_note,
+    read_memory,
+    redact_secrets,
+)
 from ..harness.skills import list_skills, read_skill
 from ..permissions.policy import Approval, PermissionPolicy, PermissionRequest
 from ..providers.base import ProviderError
@@ -39,10 +48,12 @@ from .events import EventBus
 
 PERMISSION_TIMEOUT_S = 300.0
 MAX_QUEUED_PROMPTS = 16
+QUEUE_RETRY_DELAY_S = 0.5
 
 
 @dataclass(frozen=True)
 class QueuedPrompt:
+    id: str
     content: str
     attachments: list[MessageAttachment]
 
@@ -97,6 +108,11 @@ class DaemonRuntime:
         self._buses: dict[str, EventBus] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._queues: dict[str, deque[QueuedPrompt]] = {}
+        self._queue_blocked: dict[str, str] = {}
+        self._queue_retries: dict[str, asyncio.TimerHandle] = {}
+        self._closing = False
+        self._steering: dict[str, dict[str, str]] = {}
+        self._active_run_ids: dict[str, str] = {}
         self._waiters: dict[str, asyncio.Future[Approval]] = {}
         self._waiter_sessions: dict[str, str] = {}
         self._watermarks: dict[str, int] = {}
@@ -152,12 +168,16 @@ class DaemonRuntime:
         session: Session,
         content: str,
         attachments: list[MessageAttachment] | None = None,
+        *,
+        queued_prompt_id: str | None = None,
     ) -> tuple[str, int]:
         with self._operation_lock:
+            if self._closing:
+                raise RuntimeError_("Daemon is shutting down")
             workspace = Path(session.cwd).resolve()
             if any(_overlaps(workspace, root) for root in self._workspace_operations):
                 raise SessionBusy("Workspace is busy with another operation")
-            return self._start_run(session, content, attachments)
+            return self._start_run(session, content, attachments, queued_prompt_id=queued_prompt_id)
 
     def submit_run(
         self,
@@ -168,7 +188,9 @@ class DaemonRuntime:
         """Start a run, or queue it behind the active run for this session."""
 
         with self._operation_lock:
-            if not self.is_running(session.id):
+            if self._closing:
+                raise RuntimeError_("Daemon is shutting down")
+            if not self.is_running(session.id) and not self._queues.get(session.id):
                 run_id, event_id = self.start_run(session, content, attachments)
                 return run_id, event_id, "running"
             queue = self._queues.setdefault(session.id, deque())
@@ -176,15 +198,77 @@ class DaemonRuntime:
                 raise RuntimeError_(
                     f"At most {MAX_QUEUED_PROMPTS} prompts can be queued for a session"
                 )
-            queue.append(QueuedPrompt(content=content, attachments=list(attachments or [])))
             run_id = f"queued_{uuid.uuid4().hex}"
+            queue.append(QueuedPrompt(run_id, content, list(attachments or [])))
             return run_id, self.bus(session.id).last_seq(), "queued"
+
+    def queue_snapshot(self, session_id: str) -> dict[str, Any]:
+        with self._operation_lock:
+            blocked = self._queue_blocked.get(session_id)
+            items = [
+                {
+                    "id": item.id,
+                    "preview": " ".join(redact_secrets(item.content).split())[:180],
+                    "attachment_count": len(item.attachments),
+                    **({"blocked_reason": blocked} if index == 0 and blocked else {}),
+                }
+                for index, item in enumerate(self._queues.get(session_id, ()))
+            ]
+            return {"event_seq": self.bus(session_id).last_seq(), "items": items}
+
+    async def publish_queue(self, session_id: str) -> int:
+        bus = self.bus(session_id)
+        event = await bus.publish(
+            "queue.changed", {"items": self.queue_snapshot(session_id)["items"]}
+        )
+        return event.seq
+
+    def resolve_correction(self, session_id: str, message_id: str) -> bool:
+        return self.store.delete_unapplied_correction(session_id, message_id)
+
+    async def remove_queued_prompt(self, session_id: str, prompt_id: str) -> QueuedPrompt | None:
+        with self._operation_lock:
+            queue = self._queues.get(session_id)
+            item = next((item for item in queue or () if item.id == prompt_id), None)
+            if item is None or queue is None:
+                return None
+            removed_blocked = queue[0] is item and session_id in self._queue_blocked
+            queue.remove(item)
+            if not queue:
+                self._queues.pop(session_id, None)
+            if removed_blocked:
+                self._clear_queue_block(session_id)
+                self._drain_queue(session_id)
+        await self.publish_queue(session_id)
+        return item
+
+    def active_run_id(self, session_id: str) -> str | None:
+        return self._active_run_ids.get(session_id) if self.is_running(session_id) else None
+
+    def steer(self, session_id: str, content: str, active_run_id: str) -> tuple[str, int]:
+        with self._operation_lock:
+            task = self._tasks.get(session_id)
+            inbox = self._steering.get(active_run_id)
+            if (
+                not task
+                or task.done()
+                or inbox is None
+                or self._active_run_ids.get(session_id) != active_run_id
+            ):
+                raise RuntimeError_("This run has already finished or changed.")
+            if len(inbox) >= MAX_QUEUED_PROMPTS:
+                raise RuntimeError_("Too many pending corrections.")
+            message_id = f"msg_{uuid.uuid4().hex}"
+            inbox[message_id] = content
+            return message_id, self.bus(session_id).last_seq()
 
     def _start_run(
         self,
         session: Session,
         content: str,
         attachments: list[MessageAttachment] | None = None,
+        *,
+        queued_prompt_id: str | None = None,
     ) -> tuple[str, int]:
         if not session.cwd:
             raise ValueError("Session has no workspace")
@@ -196,55 +280,110 @@ class DaemonRuntime:
             if title:
                 self.store.update_session(session.id, title=title)
         run_id = f"run_{uuid.uuid4().hex}"
+        self._active_run_ids[session.id] = run_id
+        self._steering[run_id] = {}
         bus = self.bus(session.id)
 
         async def emit(event_type: str, data: dict[str, Any]) -> None:
+            if event_type == "run.end":
+                await self._publish_unapplied(
+                    session.id, run_id, self._save_unapplied(session.id, run_id)
+                )
+            if queued_prompt_id and event_type == "message.start" and data.get("role") == "user":
+                data = {
+                    **data,
+                    "queued_prompt_id": queued_prompt_id,
+                    "content": redact_secrets(content),
+                }
             envelope = await bus.publish(event_type, data, turn_id=run_id)
-            if event_type in {"message.end", "tool.end", "run.end", "plan", "checkpoint"}:
+            if event_type in {
+                "message.end",
+                "tool.end",
+                "run.end",
+                "plan",
+                "checkpoint",
+                "steering.applied",
+            }:
                 self._watermarks[session.id] = envelope.seq
 
-        task = asyncio.create_task(self._run(session, content, attachments or [], emit, run_id))
+        async def run() -> None:
+            if queued_prompt_id:
+                await self.publish_queue(session.id)
+            await self._run(session, content, attachments or [], emit, run_id)
+
+        task = asyncio.create_task(run())
         self._tasks[session.id] = task
-        task.add_done_callback(lambda finished: self._forget_task(session.id, finished))
+        task.add_done_callback(lambda finished: self._forget_task(session.id, finished, run_id))
         return run_id, bus.last_seq()
 
-    def _forget_task(self, session_id: str, task: asyncio.Task[Any]) -> None:
+    def _forget_task(self, session_id: str, task: asyncio.Task[Any], run_id: str) -> None:
         with self._operation_lock:
             if self._tasks.get(session_id) is task:
                 self._tasks.pop(session_id, None)
+                self._active_run_ids.pop(session_id, None)
+            remaining = self._save_unapplied(session_id, run_id)
+        if remaining:
+            asyncio.create_task(self._publish_unapplied(session_id, run_id, remaining))
         self._drain_queue(session_id)
+
+    def _save_unapplied(self, session_id: str, run_id: str) -> dict[str, str]:
+        with self._operation_lock:
+            remaining = self._steering.pop(run_id, {})
+            for message_id, content in remaining.items():
+                self.store.record_unapplied_correction(session_id, message_id, content)
+            return remaining
+
+    async def _publish_unapplied(
+        self, session_id: str, run_id: str, remaining: dict[str, str]
+    ) -> None:
+        for message_id, content in remaining.items():
+            await self.bus(session_id).publish(
+                "steering.dropped",
+                {"message_id": message_id, "content": redact_secrets(content)},
+                turn_id=run_id,
+            )
 
     def _drain_queue(self, session_id: str) -> None:
         """Start the next queued prompt after the active task has finished."""
 
         with self._operation_lock:
-            if self.is_running(session_id):
+            if self._closing or self.is_running(session_id):
                 return
             queue = self._queues.get(session_id)
             if not queue:
                 return
-            prompt = queue.popleft()
-            if not queue:
-                self._queues.pop(session_id, None)
             session = self.store.get_session(session_id)
             if session is None:
                 return
+            prompt = queue[0]
             try:
-                self.start_run(session, prompt.content, prompt.attachments)
+                self.start_run(
+                    session, prompt.content, prompt.attachments, queued_prompt_id=prompt.id
+                )
             except Exception as exc:
-                # A queued item that cannot start must surface as a terminal
-                # error instead of silently disappearing or leaving the queue
-                # visible forever.
+                reason = redact_secrets(str(exc))
+                if self._queue_blocked.get(session_id) != reason:
+                    self._queue_blocked[session_id] = reason
+                    asyncio.create_task(self.publish_queue(session_id))
+                if isinstance(exc, SessionBusy) and session_id not in self._queue_retries:
+                    self._queue_retries[session_id] = asyncio.get_running_loop().call_later(
+                        QUEUE_RETRY_DELAY_S, self._retry_queue, session_id
+                    )
+                return
+            queue.popleft()
+            self._clear_queue_block(session_id)
+            if not queue:
                 self._queues.pop(session_id, None)
-                asyncio.create_task(self._queued_prompt_failed(session_id, str(exc)))
 
-    async def _queued_prompt_failed(self, session_id: str, message: str) -> None:
-        bus = self.bus(session_id)
-        await bus.publish(
-            "error",
-            {"code": "queued_prompt_failed", "message": message, "retryable": False},
-        )
-        await bus.publish("run.end", {"reason": "error", "error": message})
+    def _retry_queue(self, session_id: str) -> None:
+        self._queue_retries.pop(session_id, None)
+        self._drain_queue(session_id)
+
+    def _clear_queue_block(self, session_id: str) -> None:
+        self._queue_blocked.pop(session_id, None)
+        retry = self._queue_retries.pop(session_id, None)
+        if retry is not None:
+            retry.cancel()
 
     @contextlib.contextmanager
     def _exclusive_operation(self, session_id: str):
@@ -281,19 +420,66 @@ class DaemonRuntime:
         run_id: str,
     ) -> None:
         cancelled = False
+        timing = RunTiming()
+        evolution = load_state()
+        tag = evolution.tag or "baseline"
+        current_session = self.store.get_session(session.id) or session
+        metadata = dict(current_session.metadata)
+        if not metadata.get("pinned_system_prompts"):
+            metadata["observation_harness_tag"] = tag
+            self.store.update_session(session.id, metadata=metadata)
+        matches_pinned_tag = metadata.get("observation_harness_tag") == tag
+        allowance_before = self.store.usage_totals(session.id).allowance
+        tools = errors = 0
+        models: set[str] = set()
+
+        async def observed_emit(event_type: str, data: dict[str, Any]) -> None:
+            nonlocal tools, errors
+            if event_type == "run.end":
+                self.store.record_run_timing(session.id, run_id, timing.snapshot())
+            if event_type == "tool.end":
+                if data.get("status") != "skipped":
+                    tools += 1
+                    errors += int(data.get("status") != "ok")
+            elif (
+                event_type == "usage"
+                and isinstance(data.get("model"), str)
+                and data.get("step_id") != "compact"
+            ):
+                # Compaction reports the configured reference, not the model
+                # that actually served this run. Keeping it would split one
+                # valid observation into two model identities.
+                models.add(data["model"])
+            await emit(event_type, data)
 
         async def resolve_permission(request: PermissionRequest, request_id: str) -> Approval:
             return await self._resolve_permission(request, request_id, session_id=session.id)
 
+        def take_steering() -> list[tuple[str, str]]:
+            with self._operation_lock:
+                inbox = self._steering.get(run_id)
+                if not inbox:
+                    return []
+                notes = list(inbox.items())
+                inbox.clear()
+                return notes
+
+        def steering_waiting() -> bool:
+            with self._operation_lock:
+                return bool(self._steering.get(run_id))
+
+        timing_token = active_timing.set(timing)
         try:
             await self.loop.run(
                 session,
                 content,
-                emit=emit,
+                emit=observed_emit,
                 permission_resolver=resolve_permission,
                 model_override=session.model,
                 extend_budget=True,
                 attachments=attachments,
+                take_steering=take_steering,
+                steering_waiting=steering_waiting,
             )
         except asyncio.CancelledError:
             cancelled = True
@@ -303,8 +489,25 @@ class DaemonRuntime:
                 "error",
                 {"code": "internal_error", "message": str(exc), "retryable": False},
             )
-            await emit("run.end", {"reason": "error", "error": str(exc)})
+            await observed_emit("run.end", {"reason": "error", "error": str(exc)})
         finally:
+            active_timing.reset(timing_token)
+            self.store.record_run_timing(session.id, run_id, timing.snapshot())
+            latest_evolution = load_state()
+            if matches_pinned_tag and len(models) == 1 and latest_evolution.tag == evolution.tag:
+                self.store.record_run_observation(
+                    run_id=run_id,
+                    session=session,
+                    model=next(iter(models)),
+                    tag=tag,
+                    tools=tools,
+                    errors=errors,
+                    corrected=any(hint in content.casefold() for hint in _CORRECTION_HINTS),
+                    aborted=cancelled,
+                    allowance=max(
+                        0, self.store.usage_totals(session.id).allowance - allowance_before
+                    ),
+                )
             if not cancelled:
                 other_active = any(
                     not task.done()
@@ -316,8 +519,11 @@ class DaemonRuntime:
 
     async def abort(self, session_id: str) -> bool:
         with self._operation_lock:
-            self._queues.pop(session_id, None)
+            cleared = self._queues.pop(session_id, None)
+            self._clear_queue_block(session_id)
             task = self._tasks.get(session_id)
+        if cleared:
+            await self.publish_queue(session_id)
         if task is None or task.done():
             return False
         task.cancel()
@@ -506,6 +712,198 @@ class DaemonRuntime:
     # ------------------------------------------------------------------
     def checkpoints(self, session_id: str) -> list[dict[str, Any]]:
         return self.store.list_checkpoints(session_id)
+
+    def changes(
+        self,
+        session_id: str,
+        *,
+        scope: str,
+        checkpoint_id: str | None = None,
+        end_checkpoint_id: str | None = None,
+        file_path: str | None = None,
+    ) -> dict[str, Any]:
+        session = self.store.get_session(session_id)
+        if session is None:
+            raise ValueError("Session not found")
+        workspace = Path(session.cwd)
+        policy = PermissionPolicy(workspace, self.config.permissions)
+        base = end_id = None
+
+        # Git reads GIT_DIR/GIT_WORK_TREE from the daemon environment and follows
+        # a workspace .git file to its target. Review requests must stay inside
+        # the session workspace that the permission policy approved.
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key
+            not in {
+                "GIT_DIR",
+                "GIT_WORK_TREE",
+                "GIT_INDEX_FILE",
+                "GIT_OBJECT_DIRECTORY",
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+                "GIT_COMMON_DIR",
+            }
+        }
+
+        def git(*arguments: str) -> str:
+            result = subprocess.run(
+                [*prefix, *arguments],
+                cwd=workspace,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+            if result.returncode:
+                raise ValueError("Changes are unavailable for this workspace or checkpoint.")
+            return result.stdout
+
+        if scope == "turn":
+            # Oldest-first snapshots. A new initial checkpoint marks a new turn.
+            records = self.store.list_checkpoints(session_id, limit=10_000)
+            anchors = [
+                index
+                for index, row in enumerate(records)
+                if row["label"] == "initial"
+                and (checkpoint_id is None or checkpoint_id == row["id"])
+            ]
+            if not anchors:
+                return {"scope": scope, "files": [], "available": False, "truncated": False}
+            anchor = anchors[-1]
+            next_turn = next(
+                (i for i in range(anchor + 1, len(records)) if records[i]["label"] == "initial"),
+                len(records),
+            )
+            start = records[anchor]
+            end = next(
+                (
+                    row
+                    for row in reversed(records[anchor + 1 : next_turn])
+                    if str(row["label"]).split(":", 1)[0]
+                    in {"write_file", "edit_file", "bash", "task"}
+                ),
+                start,
+            )
+            if end_checkpoint_id is not None:
+                pinned = next(
+                    (row for row in records[anchor:next_turn] if row["id"] == end_checkpoint_id),
+                    None,
+                )
+                if pinned is None:
+                    raise ValueError("The requested snapshot is not in this turn")
+                end = pinned
+            base = start["id"]
+            end_id = end["id"]
+            manager = CheckpointManager(workspace, session_id, store=self.store)
+            if not manager.git_dir.is_dir():
+                return {"scope": scope, "files": [], "available": False, "truncated": False}
+            prefix = ["git", "--git-dir", str(manager.git_dir), "--work-tree", str(workspace)]
+            refs = [str(start["commit_hash"]), str(end["commit_hash"])]
+            untracked = []
+        else:
+            prefix = ["git"]
+            resolved = workspace.resolve()
+            top = Path(git("rev-parse", "--show-toplevel").strip()).resolve()
+            if top != resolved and top not in resolved.parents:
+                raise ValueError("Changes are unavailable for this workspace or checkpoint.")
+            # A .git file may point at any repository. Accept a normal checkout,
+            # a linked worktree whose back-pointer names this workspace, or a
+            # submodule owned by an ancestor repository. Use the worktree root
+            # so a session opened in a repository subdirectory still works.
+            git_dir = Path(git("rev-parse", "--absolute-git-dir").strip()).resolve()
+            root = top
+            dot_git = (root / ".git").resolve()
+            owned = git_dir == dot_git or root in git_dir.parents
+            if not owned and (git_dir / "gitdir").is_file():
+                try:
+                    linked = Path(
+                        (git_dir / "gitdir").read_text(encoding="utf-8").strip()
+                    ).resolve()
+                except OSError:
+                    linked = None
+                owned = linked == dot_git
+            if (
+                not owned
+                and git_dir.parent.name == "modules"
+                and git_dir.parent.parent.name == ".git"
+            ):
+                superproject = git_dir.parent.parent.parent
+                owned = superproject == root or superproject in root.parents
+            if not owned:
+                raise ValueError("Changes are unavailable for this workspace or checkpoint.")
+            head = subprocess.run(
+                [*prefix, "rev-parse", "--verify", "--quiet", "HEAD"],
+                cwd=workspace,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+            # An unborn branch has no HEAD; diff against the empty tree so
+            # staged and untracked files still appear in the review.
+            refs = (
+                ["HEAD"]
+                if head.returncode == 0
+                else [git("hash-object", "-t", "tree", "--stdin").strip()]
+            )
+            untracked = git("ls-files", "--others", "--exclude-standard", "-z").split("\0")[:-1]
+        diff = ["diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--relative"]
+        entries = iter(git(*diff, "--name-status", "-z", *refs, "--").split("\0")[:-1])
+        paths: list[tuple[str, str, str | None]] = []
+        for status in entries:
+            first = next(entries)
+            if status.startswith(("R", "C")):
+                paths.append((status[0], next(entries), first))
+            else:
+                paths.append((status[0], first, None))
+        paths.extend(("?", path, None) for path in untracked)
+        files = []
+        for status, path, old_path in paths[:100]:
+            if file_path is not None and path != file_path:
+                continue
+            actual_paths = [path, old_path] if old_path else [path]
+            if any(
+                policy.check(
+                    PermissionRequest(
+                        tool="read_file",
+                        kind="read",
+                        path=str(workspace / name),
+                        preview="Review changes",
+                    )
+                )
+                != "allow"
+                for name in actual_paths
+            ):
+                continue
+            patch = (
+                ""
+                if status == "?" or file_path is None
+                else git(*diff, *refs, "--", *(f":(literal){name}" for name in actual_paths))
+            )
+            files.append(
+                {
+                    "path": path,
+                    "old_path": old_path,
+                    "status": status,
+                    "patch": redact_secrets(patch)[:24_000],
+                    "truncated": len(patch) > 24_000,
+                }
+            )
+        return {
+            "scope": scope,
+            "files": files,
+            "base": base,
+            "end": end_id,
+            "available": True,
+            "truncated": len(paths) > 100,
+        }
 
     def create_checkpoint(self, session_id: str, label: str | None = None) -> dict[str, Any]:
         with self._exclusive_operation(session_id):
@@ -778,9 +1176,15 @@ class DaemonRuntime:
         }
 
     async def close(self) -> None:
-        for task in list(self._tasks.values()):
+        with self._operation_lock:
+            self._closing = True
+            tasks = list(self._tasks.values())
+            for retry in self._queue_retries.values():
+                retry.cancel()
+            self._queue_retries.clear()
+        for task in tasks:
             task.cancel()
-        for task in list(self._tasks.values()):
+        for task in tasks:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
         await self.loop.close_jobs()

@@ -40,7 +40,17 @@ class VerifyCommandResult(BaseModel):
     flaky: bool = False
     output: str = ""
     denied: bool = False
+    execution_error: bool = False
     failure_fingerprint: str | None = None
+
+    @property
+    def incomplete(self) -> bool:
+        return (
+            self.denied
+            or self.timed_out
+            or self.execution_error
+            or (not self.ok and self.exit_code in {None, 126, 127, 9009})
+        )
 
 
 class VerifyReport(BaseModel):
@@ -59,14 +69,14 @@ class VerifyReport(BaseModel):
         previous = {
             self._failure_identity(command)
             for command in baseline.commands
-            if not command.ok and not command.flaky and not command.denied
+            if not command.ok and not command.flaky and not command.incomplete
         }
         return [
             command
             for command in self.commands
             if not command.ok
             and not command.flaky
-            and (command.denied or self._failure_identity(command) not in previous)
+            and (command.incomplete or self._failure_identity(command) not in previous)
         ]
 
     @staticmethod
@@ -171,8 +181,7 @@ class Verifier:
                 not result.ok
                 and command.name == "test"
                 and self.config.retry_flaky
-                and not result.timed_out
-                and not result.denied
+                and not result.incomplete
             ):
                 retry = await self._authorized_run(command)
                 if retry.ok:
@@ -216,6 +225,17 @@ class Verifier:
                 ok=result.ok,
                 exit_code=result.returncode,
                 duration_s=round(time.perf_counter() - started, 2),
+                execution_error=not result.ok
+                and (
+                    result.backend.startswith("missing-")
+                    or result.output.startswith(
+                        (
+                            "sandbox failed:",
+                            "sandbox timed out after ",
+                            "sandbox backend is unavailable:",
+                        )
+                    )
+                ),
                 output=redact_secrets(_trim_output(result.output, self.config.keep_output_chars)),
                 failure_fingerprint=hashlib.sha256(result.output.encode()).hexdigest(),
             )

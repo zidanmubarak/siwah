@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ from siwah.mcp.client import (
     McpError,
     McpManager,
     McpToolInfo,
+    StdioMcpClient,
     load_mcp_config,
     mcp_context,
     normalize_server,
@@ -126,7 +128,10 @@ async def test_stdio_mcp_lazy_tools_pagination_and_env(tmp_path: Path):
     )
     manager = McpManager.load(harness)
     try:
-        tools = await manager.list_tools()
+        tools, echoed = await asyncio.gather(
+            manager.list_tools(), manager.call("fake", "echo", {"text": "concurrent"})
+        )
+        assert echoed == "echo:concurrent"
         assert [tool.name for tool in tools["fake"]] == ["echo", "env"]
         schema = await manager.schema("fake", "echo")
         assert schema["properties"]["text"]["type"] == "string"
@@ -145,6 +150,86 @@ async def test_stdio_mcp_lazy_tools_pagination_and_env(tmp_path: Path):
         assert restarted["tools"] == ["echo", "env"]
     finally:
         await manager.close()
+
+
+async def test_stdio_response_deadline_includes_unrelated_messages():
+    class NoisyOutput:
+        messages = 0
+
+        async def readline(self):
+            await asyncio.sleep(0.005)
+            self.messages += 1
+            return b'{"jsonrpc":"2.0","method":"notifications/progress"}'
+
+    class Input:
+        def write(self, _value):
+            pass
+
+        async def drain(self):
+            pass
+
+    from types import SimpleNamespace
+    from typing import cast
+
+    output = NoisyOutput()
+    client = StdioMcpClient([], timeout_s=0.1)
+    client.process = cast(asyncio.subprocess.Process, SimpleNamespace(stdin=Input(), stdout=output))
+    async with asyncio.timeout(2):
+        with pytest.raises(McpError, match="did not answer tools/list"):
+            await client.request("tools/list", {})
+    assert output.messages >= 2
+
+
+@pytest.mark.asyncio
+async def test_stdio_close_during_startup_terminates_spawned_process(monkeypatch):
+    class FakeInput:
+        def close(self):
+            pass
+
+        async def wait_closed(self):
+            pass
+
+    class FakeOutput:
+        async def read(self, _size: int) -> bytes:
+            return b""
+
+    class FakeProcess:
+        def __init__(self):
+            self.returncode = None
+            self.terminated = False
+            self.stdin = FakeInput()
+            self.stdout = FakeOutput()
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = 0
+
+        def kill(self):
+            self.terminated = True
+            self.returncode = -9
+
+        async def wait(self):
+            return self.returncode
+
+    process = FakeProcess()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def spawn(*_args, **_kwargs):
+        started.set()
+        await release.wait()
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    client = StdioMcpClient(["fake"])
+    task = asyncio.create_task(client._ensure())
+    await asyncio.wait_for(started.wait(), 1)
+    await client.close()
+    release.set()
+    with pytest.raises(McpError, match="closed during startup"):
+        await asyncio.wait_for(task, 2)
+    assert process.terminated is True
+    assert client.process is None
 
 
 @pytest.mark.asyncio

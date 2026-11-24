@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -10,8 +11,9 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from itertools import groupby
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +29,15 @@ from ..core.context import (
 from ..core.prompt import system_prompt
 from ..core.storage import Session, Store, UsageTotals
 from ..core.subagents import SubagentManager
-from ..core.types import Message, MessageAttachment, ProviderEvent, ToolCall, Usage
+from ..core.timing import timed
+from ..core.types import (
+    SUPERSEDED_TOOL_MESSAGE,
+    Message,
+    MessageAttachment,
+    ProviderEvent,
+    ToolCall,
+    Usage,
+)
 from ..core.verify import Verifier, VerifyReport
 from ..harness.memory import redact_secrets
 from ..hooks import HookManager
@@ -44,14 +54,15 @@ from ..providers.profiles import load_profile
 from ..providers.registry import RoleRouter
 from ..sandbox import Sandbox
 from ..tools.base import TodoItem, ToolContext, ToolRegistry, ToolResult
+from ..tools.fs import GlobTool, GrepTool, ReadFileTool
 
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
 PermissionResolver = Callable[[PermissionRequest, str], Awaitable[Approval]]
 AskUser = Callable[[str], Awaitable[str]]
+SteeringInbox = Callable[[], list[tuple[str, str]]]
 
-# Tools whose successful use counts as a state change for the completion
-# self-check. `bash` is included because tests and verifiers often run through it.
-STATE_CHANGING_TOOLS = {"edit_file", "write_file", "bash"}
+_PARALLEL_READ_TOOLS = (ReadFileTool, GlobTool, GrepTool)
+_MAX_PARALLEL_READS = 4
 FILE_CHANGE_TOOLS = {"edit_file", "write_file"}
 FINISHED_TODO_STATUSES = {"done", "blocked"}
 _MEMORY_CUE = re.compile(
@@ -68,6 +79,7 @@ PLAN_TOOLS = {
     "ask_user",
     "web_fetch",
     "skill_view",
+    "skill_list",
     "recall",
     "repo_map",
     "symbols",
@@ -133,25 +145,41 @@ def _restored_todos_text(todos: list[TodoItem]) -> str:
     )
 
 
-def _explains_verifier_failure(text: str) -> bool:
-    lowered = text.lower()
+async def _noop_emit(_event: ProviderEvent) -> None:
+    return None
+
+
+def _mentions_verification_failure(text: str) -> bool:
+    """Return True when the answer names the pre-existing verification failure."""
+    lowered = text.casefold()
+    if any(
+        marker in lowered
+        for marker in (
+            "unverified",
+            "not verified",
+            "could not run",
+            "couldn't run",
+            "checks failed",
+            "tests failed",
+        )
+    ):
+        return True
+    if "fail" not in lowered and "broken" not in lowered:
+        return False
     return any(
         marker in lowered
         for marker in (
             "pre-existing",
             "preexisting",
+            "pre existing",
+            "existing",
+            "baseline",
+            "before",
+            "already",
             "unrelated",
-            "cannot fix",
-            "not caused by",
-            "known failure",
-            "environment issue",
-            "skipped",
+            "unchanged",
         )
     )
-
-
-async def _noop_emit(_event: ProviderEvent) -> None:
-    return None
 
 
 @dataclass
@@ -159,6 +187,8 @@ class _LoopToolContext(ToolContext):
     """Observe the real tool authorization without duplicating its request."""
 
     before_mutation: Callable[[PermissionRequest], Awaitable[None]] | None = None
+    verify_pre_existing: bool = False
+    verify_pre_existing_nudged: bool = False
 
     async def authorize(self, request: PermissionRequest) -> tuple[bool, str | None]:
         allowed, reason = await super().authorize(request)
@@ -226,6 +256,8 @@ class AgentLoop:
         extend_budget: bool = False,
         attachments: list[MessageAttachment] | None = None,
         max_allowance: float | None = None,
+        take_steering: SteeringInbox | None = None,
+        steering_waiting: Callable[[], bool] | None = None,
     ) -> RunResult:
         if max_allowance is not None and (not math.isfinite(max_allowance) or max_allowance < 0):
             raise ConfigError("max_allowance must be finite and non-negative")
@@ -337,7 +369,7 @@ class AgentLoop:
         )
 
         if checkpointer is not None:
-            initial = await asyncio.to_thread(checkpointer.initial)
+            initial = await timed("checkpoint", asyncio.to_thread(checkpointer.initial))
             if initial:
                 await self._emit_checkpoint(initial, emit)
 
@@ -351,14 +383,37 @@ class AgentLoop:
         ]
         messages.extend(self.store.get_context_messages(session.id))
         if context.hooks is not None:
-            session_hook = await context.hooks.run(
-                "SessionStart",
-                {"session_id": session.id, "cwd": str(workspace), "model": model_ref},
+            session_hook = await timed(
+                "hook",
+                context.hooks.run(
+                    "SessionStart",
+                    {"session_id": session.id, "cwd": str(workspace), "model": model_ref},
+                ),
             )
             if session_hook.context:
                 messages.append(Message(role="system", content=session_hook.context))
         if restored_todos:
             messages.append(Message(role="system", content=_restored_todos_text(restored_todos)))
+
+        async def apply_steering(notes: list[tuple[str, str]]) -> None:
+            nonlocal memory_cue
+            for message_id, content in notes:
+                safe_content = redact_secrets(content)
+                message = Message(role="user", content=content)
+                self.store.append_message(session.id, message, message_id=message_id)
+                self.store.append_trajectory(
+                    session.id,
+                    {
+                        "type": "user",
+                        "message_id": message_id,
+                        "content": safe_content,
+                        "delivery": "steering",
+                    },
+                )
+                messages.append(message)
+                memory_cue = memory_cue or bool(_MEMORY_CUE.search(content))
+                await emit("steering.applied", {"message_id": message_id, "content": safe_content})
+
         tools = self._tool_specs(session.mode)
         steps = 0
         final_text = ""
@@ -380,9 +435,9 @@ class AgentLoop:
         signature_window: deque[str] = deque(maxlen=extension)
         window_has_file_change = False
         unproductive_steps = 0
+        recent_reads: deque[tuple[str, tuple[bytes, ...]]] = deque(maxlen=8)
+        current_read_results: dict[str, tuple[bytes, ...]] = {}
         completion_nudges = 0
-        self_check_done = False
-        had_state_change = False
         stall_nudges = 0
         stall_limit = max(1, self.config.agent.stall_limit)
         stall_nudge_at = max(2, stall_limit // 2)
@@ -421,6 +476,12 @@ class AgentLoop:
                         )
                         continue
                     break
+                notes = take_steering() if take_steering else []
+                if notes:
+                    await apply_steering(notes)
+                    unproductive_steps = 0
+                    recent_reads.clear()
+                    current_read_results.clear()
                 steps += 1
                 step_id = f"step_{steps}"
                 pruned = context_manager.prune(messages)
@@ -510,15 +571,18 @@ class AgentLoop:
 
                 try:
                     provider_started = time.perf_counter()
-                    outcome = await self.router.stream(
-                        role,
-                        messages=messages,
-                        tools=tools,
-                        session_id=session.id,
-                        emit=provider_emit,
-                        model_override=model_override,
-                        temperature=0.0,
-                        effort=effort,
+                    outcome = await timed(
+                        "model",
+                        self.router.stream(
+                            role,
+                            messages=messages,
+                            tools=tools,
+                            session_id=session.id,
+                            emit=provider_emit,
+                            model_override=model_override,
+                            temperature=0.0,
+                            effort=effort,
+                        ),
                     )
                     latency_ms = (time.perf_counter() - provider_started) * 1000.0
                 except ProviderError as exc:
@@ -644,6 +708,30 @@ class AgentLoop:
                         assistant_message_id=assistant_id,
                     )
 
+                waiting = steering_waiting() if steering_waiting is not None else False
+                notes = take_steering() if steering_waiting is None and take_steering else []
+                if waiting or notes:
+                    # Complete the provider's tool-call protocol without dispatching
+                    # calls proposed before the correction arrived.
+                    for call in outcome.tool_calls:
+                        await self._record_tool_call(
+                            session,
+                            call,
+                            ToolResult.failure(SUPERSEDED_TOOL_MESSAGE),
+                            0.0,
+                            messages,
+                            emit,
+                            assistant_id,
+                            context,
+                            skipped=True,
+                        )
+                    if notes:
+                        await apply_steering(notes)
+                    unproductive_steps = 0
+                    recent_reads.clear()
+                    current_read_results.clear()
+                    continue
+
                 if not outcome.tool_calls:
                     if session.mode == "plan":
                         plan_path = self._write_plan(workspace, final_text)
@@ -662,30 +750,15 @@ class AgentLoop:
                         return await self._complete(session, context, final_text, steps, emit)
 
                     if context.verify_failed:
-                        if context.verify_repair_attempts > 0 and _explains_verifier_failure(
-                            final_text
-                        ):
-                            await emit(
-                                "verifier",
-                                {
-                                    "status": "accepted_explanation",
-                                    "summary": (
-                                        context.verify_report.summary
-                                        if context.verify_report
-                                        else ""
-                                    ),
-                                },
-                            )
-                        elif context.verify_repair_attempts < self.config.verify.max_repair_steps:
+                        if context.verify_repair_attempts < self.config.verify.max_repair_steps:
                             context.verify_repair_attempts += 1
                             instruction = Message(
                                 role="system",
                                 content=(
-                                    "The verifier reported a new failure after your last edit. "
-                                    "Fix it and run the verifier again. If the failure is "
-                                    "pre-existing or unrelated, say so explicitly using the word "
-                                    "'pre-existing' or 'unrelated'. Do not claim completion "
-                                    "otherwise.\n\n"
+                                    "The verifier found a regression or could not finish a check. "
+                                    "Fix regressions and rerun the affected verification. "
+                                    "Report checks that could not run as unverified. "
+                                    "Do not claim that verification passed.\n\n"
                                     + (
                                         context.verify_report.summary
                                         if context.verify_report
@@ -738,13 +811,37 @@ class AgentLoop:
                                 error="verification_failed",
                             )
 
+                    if (
+                        context.verify_pre_existing
+                        and not context.verify_pre_existing_nudged
+                        and not _mentions_verification_failure(final_text)
+                    ):
+                        context.verify_pre_existing_nudged = True
+                        summary = context.verify_report.summary if context.verify_report else ""
+                        instruction = Message(
+                            role="system",
+                            content=(
+                                "The verifier still reports checks that failed before "
+                                "your edits. Do not claim that verification passed. Name "
+                                "the failing checks and state that they are pre-existing "
+                                "or unverified, then finish.\n\n" + summary
+                            ),
+                        )
+                        self.store.append_message(session.id, instruction)
+                        messages.append(instruction)
+                        await emit(
+                            "verifier",
+                            {
+                                "status": "retry",
+                                "attempt": 1,
+                                "summary": summary,
+                            },
+                        )
+                        continue
+
                     nudge = self._completion_nudge(
                         context=context,
                         current_text=outcome.text or "",
-                        steps=steps,
-                        completion_nudges=completion_nudges,
-                        self_check_done=self_check_done,
-                        had_state_change=had_state_change,
                         memory_cue=memory_cue,
                     )
                     min_unique = max(1, min(extension, 50) // 5)
@@ -763,8 +860,6 @@ class AgentLoop:
                     ):
                         message, reason = nudge
                         completion_nudges += 1
-                        if reason == "self_check":
-                            self_check_done = True
                         instruction = Message(role="system", content=message)
                         self.store.append_message(session.id, instruction)
                         messages.append(instruction)
@@ -797,37 +892,64 @@ class AgentLoop:
                         )
                     return await self._complete(session, context, final_text, steps, emit)
 
-                step_succeeded = False
-                step_changed_state = False
-                step_changed_files = False
                 step_signature = "|".join(
                     f"{call.name}:{json.dumps(call.arguments, sort_keys=True, default=str)}"
                     for call in outcome.tool_calls
                 )
-                for call in outcome.tool_calls:
-                    result = await self._run_tool_call(
-                        session=session,
-                        context=context,
-                        call=call,
-                        messages=messages,
-                        emit=emit,
-                        permission_resolver=permission_resolver,
-                        assistant_message_id=assistant_id,
+                results = await self._run_tool_batch(
+                    session,
+                    context,
+                    outcome.tool_calls,
+                    messages,
+                    emit,
+                    permission_resolver,
+                    assistant_id,
+                    steering_waiting,
+                )
+                step_succeeded = any(result.ok for result in results)
+                step_changed_files = any(
+                    (result.ok and call.name in FILE_CHANGE_TOOLS)
+                    or (call.name == "task" and (result.data or {}).get("writable"))
+                    for call, result in zip(outcome.tool_calls, results, strict=True)
+                )
+                read_signature = None
+                if extend_budget and all(
+                    result.ok and type(self.tools.get(call.name)) in _PARALLEL_READ_TOOLS
+                    for call, result in zip(outcome.tool_calls, results, strict=True)
+                ):
+                    read_signature = (
+                        step_signature,
+                        tuple(
+                            hashlib.sha256(
+                                str((result.data or {}).get("full_output", result.output)).encode()
+                            ).digest()
+                            for result in results
+                        ),
                     )
-                    step_succeeded = step_succeeded or result.ok
-                    delegated_write = call.name == "task" and bool(
-                        (result.data or {}).get("writable")
-                    )
-                    if (result.ok and call.name in STATE_CHANGING_TOOLS) or delegated_write:
-                        step_changed_state = True
-                    if (result.ok and call.name in FILE_CHANGE_TOOLS) or delegated_write:
-                        step_changed_files = True
-                successful_steps.append(step_succeeded)
+                repeated_reads = False
+                if read_signature is not None:
+                    request, outputs = read_signature
+                    previous = current_read_results.get(request)
+                    if previous is not None and previous != outputs:
+                        recent_reads.clear()
+                        current_read_results.clear()
+                    repeated_reads = read_signature in recent_reads
+                    recent_reads.append(read_signature)
+                    current_read_results = dict(recent_reads)
+                elif step_succeeded:
+                    recent_reads.clear()
+                    current_read_results.clear()
+                made_progress = step_succeeded and not repeated_reads
+                successful_steps.append(made_progress)
                 signature_window.append(step_signature)
                 window_has_file_change = window_has_file_change or step_changed_files
-                unproductive_steps = 0 if step_succeeded else unproductive_steps + 1
-                had_state_change = had_state_change or step_changed_state
+                unproductive_steps = 0 if made_progress else unproductive_steps + 1
                 await self._persist_todos(session, context)
+
+                if steering_waiting is not None and steering_waiting():
+                    unproductive_steps = 0
+                    recent_reads.clear()
+                    current_read_results.clear()
 
                 if extend_budget and unproductive_steps >= stall_limit:
                     await self._sync_todos(session, context, emit)
@@ -839,7 +961,7 @@ class AgentLoop:
                         {
                             "code": "stalled",
                             "message": (
-                                f"No tool call succeeded for {unproductive_steps} consecutive "
+                                f"No new tool results for {unproductive_steps} consecutive "
                                 "steps; stopping to avoid wasting the budget. Change the "
                                 "approach or raise agent.stall_limit."
                             ),
@@ -860,9 +982,8 @@ class AgentLoop:
                     instruction = Message(
                         role="system",
                         content=(
-                            "Several recent tool calls failed or produced no useful result. "
-                            "Inspect the error, change the approach, and do not repeat the same "
-                            "failing call unchanged."
+                            "Several recent tool calls failed or repeated identical read results. "
+                            "Use the evidence already gathered, or change your approach."
                         ),
                     )
                     self.store.append_message(session.id, instruction)
@@ -968,7 +1089,7 @@ class AgentLoop:
                 name=call.name,
                 arguments=call.arguments,
                 result=result.model_dump(mode="json"),
-                status="error",
+                status="skipped",
             )
             self.store.append_message(
                 session.id, Message(role="tool", content=reason, tool_call_id=call.id)
@@ -988,7 +1109,7 @@ class AgentLoop:
                     "message_id": assistant_message_id,
                     "tool_call_id": call.id,
                     "name": call.name,
-                    "status": "error",
+                    "status": "skipped",
                     "error": reason,
                     "output": reason,
                 },
@@ -1009,9 +1130,12 @@ class AgentLoop:
     async def _session_hooks(self, context: ToolContext, event: str, reason: str) -> None:
         if context.hooks is None:
             return
-        await context.hooks.run(
-            event,
-            {"session_id": context.session_id, "cwd": str(context.workspace), "reason": reason},
+        await timed(
+            "hook",
+            context.hooks.run(
+                event,
+                {"session_id": context.session_id, "cwd": str(context.workspace), "reason": reason},
+            ),
         )
 
     async def _complete(
@@ -1022,6 +1146,10 @@ class AgentLoop:
         steps: int,
         emit: EventSink,
     ) -> RunResult:
+        if isinstance(context.hooks, HookManager) and any(
+            hook.event in {"SessionEnd", "Stop"} for hook in context.hooks.hooks
+        ):
+            await emit("status", {"state": "running", "phase": "finishing_hooks"})
         await self._session_hooks(context, "SessionEnd", "completed")
         await self._session_hooks(context, "Stop", "completed")
         self.store.update_session(session.id, status="idle")
@@ -1062,14 +1190,19 @@ class AgentLoop:
         usage = Usage()
         if self.config.roles.fast:
             try:
-                outcome = await self.router.stream(
-                    "fast",
-                    messages=compaction_prompt(messages[1:], todo_text, previous_summary=previous),
-                    tools=[],
-                    session_id=session.id,
-                    emit=_noop_emit,
-                    temperature=0.0,
-                    max_tokens=1200,
+                outcome = await timed(
+                    "model",
+                    self.router.stream(
+                        "fast",
+                        messages=compaction_prompt(
+                            messages[1:], todo_text, previous_summary=previous
+                        ),
+                        tools=[],
+                        session_id=session.id,
+                        emit=_noop_emit,
+                        temperature=0.0,
+                        max_tokens=1200,
+                    ),
                 )
                 usage = outcome.usage
                 if outcome.text and outcome.text.strip():
@@ -1124,17 +1257,122 @@ class AgentLoop:
                 },
             )
 
-    async def _run_tool_call(
+    async def _run_tool_batch(
+        self,
+        session: Session,
+        context: _LoopToolContext,
+        calls: list[ToolCall],
+        messages: list[Message],
+        emit: EventSink,
+        permission_resolver: PermissionResolver | None,
+        assistant_message_id: str,
+        steering_waiting: Callable[[], bool] | None,
+    ) -> list[ToolResult]:
+        hooks = context.hooks
+        can_parallelize = hooks is None or (
+            isinstance(hooks, HookManager)
+            and not any(hook.event in {"PreToolUse", "PostToolUse"} for hook in hooks.hooks)
+        )
+
+        def parallel_read(call: ToolCall) -> bool:
+            return can_parallelize and type(self.tools.get(call.name)) in _PARALLEL_READ_TOOLS
+
+        # The CLI and TUI present one permission dialog at a time.
+        approval_lock = asyncio.Lock()
+
+        results: list[ToolResult] = []
+
+        async def skip_remaining(*, verify_pending: bool = False) -> list[ToolResult]:
+            detail = SUPERSEDED_TOOL_MESSAGE
+            if verify_pending and context.verifier is not None:
+                detail += "\n\n" + await self._verify_tool_changes(context, emit)
+            for call in calls[len(results) :]:
+                result = ToolResult.failure(detail)
+                detail = SUPERSEDED_TOOL_MESSAGE
+                await self._record_tool_call(
+                    session,
+                    call,
+                    result,
+                    0.0,
+                    messages,
+                    emit,
+                    assistant_message_id,
+                    context,
+                    skipped=True,
+                )
+                results.append(result)
+            return results
+
+        for is_read, group in groupby(calls, key=parallel_read):
+            batch = list(group)
+            if is_read and len(batch) > 1:
+                for offset in range(0, len(batch), _MAX_PARALLEL_READS):
+                    if steering_waiting is not None and steering_waiting():
+                        return await skip_remaining()
+                    chunk = batch[offset : offset + _MAX_PARALLEL_READS]
+                    read_contexts = [replace(context, read_hashes={}) for _ in chunk]
+                    async with asyncio.TaskGroup() as workers:
+                        tasks = [
+                            workers.create_task(
+                                self._execute_tool_call(
+                                    session=session,
+                                    context=read_context,
+                                    call=call,
+                                    emit=emit,
+                                    permission_resolver=permission_resolver,
+                                    assistant_message_id=assistant_message_id,
+                                    approval_lock=approval_lock,
+                                )
+                            )
+                            for call, read_context in zip(chunk, read_contexts, strict=True)
+                        ]
+                    for call, task, read_context in zip(chunk, tasks, read_contexts, strict=True):
+                        result, ms = task.result()
+                        context.read_hashes.update(read_context.read_hashes)
+                        await self._record_tool_call(
+                            session, call, result, ms, messages, emit, assistant_message_id, context
+                        )
+                        results.append(result)
+                continue
+            pending = False
+            for index, call in enumerate(batch):
+                if steering_waiting is not None and steering_waiting():
+                    return await skip_remaining(verify_pending=pending)
+                defer = (
+                    call.name in FILE_CHANGE_TOOLS
+                    and index + 1 < len(batch)
+                    and batch[index + 1].name in FILE_CHANGE_TOOLS
+                )
+                result, ms = await self._execute_tool_call(
+                    session=session,
+                    context=context,
+                    call=call,
+                    emit=emit,
+                    permission_resolver=permission_resolver,
+                    assistant_message_id=assistant_message_id,
+                    defer_verification=defer,
+                    pending_file_verification=pending,
+                )
+                pending = defer and (pending or result.ok)
+                await self._record_tool_call(
+                    session, call, result, ms, messages, emit, assistant_message_id, context
+                )
+                results.append(result)
+        return results
+
+    async def _execute_tool_call(
         self,
         *,
         session: Session,
         context: _LoopToolContext,
         call: ToolCall,
-        messages: list[Message],
         emit: EventSink,
         permission_resolver: PermissionResolver | None,
         assistant_message_id: str,
-    ) -> ToolResult:
+        defer_verification: bool = False,
+        pending_file_verification: bool = False,
+        approval_lock: asyncio.Lock | None = None,
+    ) -> tuple[ToolResult, float]:
         started = time.perf_counter()
         await emit(
             "tool.start",
@@ -1155,7 +1393,7 @@ class AgentLoop:
             )
         else:
 
-            async def approver(request: PermissionRequest) -> Approval:
+            async def prompt_approval(request: PermissionRequest) -> Approval:
                 request_id = f"perm_{uuid.uuid4().hex}"
                 await emit(
                     "permission.request",
@@ -1172,7 +1410,7 @@ class AgentLoop:
                 if permission_resolver is None:
                     approval = Approval(decision="deny", reason="No approver available")
                 else:
-                    approval = await permission_resolver(request, request_id)
+                    approval = await timed("permission", permission_resolver(request, request_id))
                 await emit(
                     "permission.resolved",
                     {
@@ -1182,6 +1420,17 @@ class AgentLoop:
                     },
                 )
                 return approval
+
+            async def approver(request: PermissionRequest) -> Approval:
+                if approval_lock is None:
+                    return await prompt_approval(request)
+                async with approval_lock:
+                    decision = context.policy.check(request)
+                    if decision == "allow":
+                        return Approval(decision="once")
+                    if decision == "deny":
+                        return Approval(decision="deny", reason="Permission denied by policy")
+                    return await prompt_approval(request)
 
             context.approver = approver
             context.tool_call_id = call.id
@@ -1195,8 +1444,11 @@ class AgentLoop:
                     and context.checkpointer is not None
                     and is_risky_command(request.command or "")
                 ):
-                    checkpoint_id = await asyncio.to_thread(
-                        context.checkpointer.snapshot, "before risky bash", allow_empty=True
+                    checkpoint_id = await timed(
+                        "checkpoint",
+                        asyncio.to_thread(
+                            context.checkpointer.snapshot, "before risky bash", allow_empty=True
+                        ),
                     )
                     if checkpoint_id:
                         await self._emit_checkpoint(checkpoint_id, emit)
@@ -1207,84 +1459,121 @@ class AgentLoop:
                     and context.verify_baseline is None
                 ):
                     await emit("verifier", {"status": "baseline"})
-                    context.verify_baseline = await context.verifier.run()
+                    context.verify_baseline = await timed("verifier", context.verifier.run())
 
             pre_hook = None
             if context.hooks is not None:
-                pre_hook = await context.hooks.run(
-                    "PreToolUse",
-                    {
-                        "session_id": session.id,
-                        "tool": call.name,
-                        "arguments": call.arguments,
-                        "cwd": str(context.workspace),
-                    },
+                pre_hook = await timed(
+                    "hook",
+                    context.hooks.run(
+                        "PreToolUse",
+                        {
+                            "session_id": session.id,
+                            "tool": call.name,
+                            "arguments": call.arguments,
+                            "cwd": str(context.workspace),
+                        },
+                    ),
                 )
             if pre_hook is not None and pre_hook.allow is False:
                 result = ToolResult.failure(pre_hook.reason or "Denied by PreToolUse hook")
             else:
                 context.before_mutation = before_mutation
                 try:
-                    result = await self.tools.execute(call.name, context, call.arguments)
+                    result = await timed(
+                        "tool", self.tools.execute(call.name, context, call.arguments)
+                    )
                 finally:
                     context.before_mutation = None
             if context.hooks is not None:
-                hook_result = await context.hooks.run(
-                    "PostToolUse",
-                    {
-                        "session_id": session.id,
-                        "tool": call.name,
-                        "arguments": call.arguments,
-                        "ok": result.ok,
-                        "output": result.output[:4_000],
-                    },
+                hook_result = await timed(
+                    "hook",
+                    context.hooks.run(
+                        "PostToolUse",
+                        {
+                            "session_id": session.id,
+                            "tool": call.name,
+                            "arguments": call.arguments,
+                            "ok": result.ok,
+                            "output": result.output[:4_000],
+                        },
+                    ),
                 )
                 if hook_result.context:
                     result = result.model_copy(
                         update={"output": result.output + "\n\n" + hook_result.context}
                     )
-            if context.verifier is not None and (
-                (call.name in {"edit_file", "write_file"} and result.ok)
+        if (
+            context.verifier is not None
+            and not defer_verification
+            and (
+                pending_file_verification
+                or (call.name in FILE_CHANGE_TOOLS and result.ok)
                 or (call.name == "task" and (result.data or {}).get("writable"))
-            ):
-                await emit("verifier", {"status": "running"})
-                report: VerifyReport = await context.verifier.run()
-                context.verify_report = report
-                failures = report.new_failures(context.verify_baseline)
-                # Unchanged baseline failures and denied checks still require
-                # an honest explanation; neither means "all checks passed".
-                context.verify_failed = report.status == "failed"
-                data = dict(result.data or {})
-                result = result.model_copy(
-                    update={
-                        "output": result.output + "\n\n" + report.summary,
-                        "data": data,
-                    }
-                )
-                await emit(
-                    "verifier",
-                    {
-                        "status": report.status,
-                        "summary": report.summary[:6000],
-                        "new_failures": [item.name for item in failures],
-                    },
-                )
-            if context.checkpointer is not None and call.name in {
-                "write_file",
-                "edit_file",
-                "bash",
-                "task",
-            }:
-                checkpoint_id = await asyncio.to_thread(
-                    context.checkpointer.snapshot, f"{call.name}:{call.id}"
-                )
-                if checkpoint_id:
-                    await self._emit_checkpoint(checkpoint_id, emit)
+            )
+        ):
+            summary = await self._verify_tool_changes(context, emit)
+            result = result.model_copy(update={"output": result.output + "\n\n" + summary})
+        if (
+            call.arguments_valid
+            and session.mode != "plan"
+            and context.checkpointer is not None
+            and call.name in {"write_file", "edit_file", "bash", "task"}
+        ):
+            checkpoint_id = await timed(
+                "checkpoint",
+                asyncio.to_thread(context.checkpointer.snapshot, f"{call.name}:{call.id}"),
+            )
+            if checkpoint_id:
+                await self._emit_checkpoint(checkpoint_id, emit)
 
         if call.name == "memory_write" and result.ok:
             context.memory_writes += 1
-        duration_ms = round((time.perf_counter() - started) * 1000, 2)
-        status = "ok" if result.ok else "error"
+        return result, round((time.perf_counter() - started) * 1000, 2)
+
+    async def _verify_tool_changes(self, context: _LoopToolContext, emit: EventSink) -> str:
+        assert context.verifier is not None
+        await emit("verifier", {"status": "running"})
+        report: VerifyReport = await timed("verifier", context.verifier.run())
+        failures = report.new_failures(context.verify_baseline)
+        blocked = [command for command in report.commands if command.incomplete]
+        regressions = [command for command in failures if command not in blocked]
+        verdict: str = report.status
+        if report.status == "failed":
+            verdict = "regression" if regressions else "unverified" if blocked else "pre_existing"
+        summary = report.summary
+        if verdict == "pre_existing":
+            summary += "\nThe same failures were present before the edits. Report them; do not claim checks passed."
+        elif blocked:
+            summary += "\nSome checks could not finish. Report them as unverified."
+        context.verify_report = report.model_copy(update={"summary": summary})
+        context.verify_failed = verdict in {"regression", "unverified"}
+        context.verify_pre_existing = verdict == "pre_existing"
+        await emit(
+            "verifier",
+            {
+                "status": report.status,
+                "verdict": verdict,
+                "summary": summary[:6000],
+                "new_failures": [item.name for item in failures],
+            },
+        )
+        return summary
+
+    async def _record_tool_call(
+        self,
+        session: Session,
+        call: ToolCall,
+        result: ToolResult,
+        duration_ms: float,
+        messages: list[Message],
+        emit: EventSink,
+        assistant_message_id: str,
+        context: ToolContext,
+        *,
+        skipped: bool = False,
+    ) -> None:
+        status = "skipped" if skipped else "ok" if result.ok else "error"
         self.store.record_tool_call(
             session_id=session.id,
             tool_call_id=call.id,
@@ -1293,6 +1582,7 @@ class AgentLoop:
             arguments=call.arguments,
             result=result.model_dump(mode="json"),
             status=status,
+            duration_ms=duration_ms,
         )
         self.store.append_trajectory(
             session.id,
@@ -1320,6 +1610,11 @@ class AgentLoop:
                 "tool_call_id": call.id,
                 "name": call.name,
                 "status": status,
+                **(
+                    {"arguments_summary": _arguments_summary(call.name, call.arguments)}
+                    if skipped
+                    else {}
+                ),
                 "duration_ms": duration_ms,
                 "output": output_for_client,
                 "output_summary": result.output[:2000],
@@ -1351,7 +1646,6 @@ class AgentLoop:
                         "view_hint": "auto",
                     },
                 )
-        return result
 
     def _load_todos(self, session: Session) -> list[TodoItem]:
         current = self.store.get_session(session.id)
@@ -1400,10 +1694,6 @@ class AgentLoop:
         *,
         context: ToolContext,
         current_text: str,
-        steps: int,
-        completion_nudges: int,
-        self_check_done: bool,
-        had_state_change: bool,
         memory_cue: bool,
     ) -> tuple[str, str] | None:
         unfinished = [item for item in context.todos if item.status not in FINISHED_TODO_STATUSES]
@@ -1430,19 +1720,5 @@ class AgentLoop:
                 "Before finishing, call memory_write with target 'user' (or 'project' for "
                 "repository facts). If it is not durable, explain why.",
                 "memory",
-            )
-        if (
-            completion_nudges == 0
-            and not self_check_done
-            and had_state_change
-            and steps >= self.config.agent.self_check_min_steps
-        ):
-            return (
-                "Before finalizing, self-check the deliverable against the user's request. "
-                "Use the tool results as evidence, confirm that every requested change is "
-                "present, and run the relevant verification if you have not already. If "
-                "everything is complete, reply with the final answer; otherwise continue "
-                "working.",
-                "self_check",
             )
         return None

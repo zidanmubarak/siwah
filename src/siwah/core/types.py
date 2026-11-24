@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+SUPERSEDED_TOOL_MESSAGE = "Tool call superseded by a user correction."
+
 
 class ToolCall(BaseModel):
     model_config = ConfigDict(extra="ignore")

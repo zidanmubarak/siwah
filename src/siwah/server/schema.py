@@ -33,6 +33,18 @@ class CreateSessionRequest(BaseModel):
     title: str | None = None
 
 
+class QueuedPromptSummary(BaseModel):
+    id: str
+    preview: str
+    attachment_count: int
+    blocked_reason: str | None = None
+
+
+class PromptQueue(BaseModel):
+    event_seq: int
+    items: list[QueuedPromptSummary]
+
+
 class SessionResponse(BaseModel):
     id: str
     title: str | None = None
@@ -44,6 +56,7 @@ class SessionResponse(BaseModel):
     updated_at: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     last_event_seq: int | None = None
+    prompt_queue: PromptQueue | None = None
 
 
 class SessionListResponse(BaseModel):
@@ -61,6 +74,18 @@ class MessageAttachment(BaseModel):
     name: str | None = None
 
 
+class QueuedPromptResponse(BaseModel):
+    id: str
+    content: str
+    attachments: list[MessageAttachment]
+
+
+class ToolCallOutcome(BaseModel):
+    status: Literal["ok", "error", "cancelled", "skipped"]
+    error: str | None = None
+    duration_ms: float | None = None
+
+
 class MessageView(BaseModel):
     id: str
     seq: int
@@ -72,8 +97,10 @@ class MessageView(BaseModel):
     tool_call_id: str | None = None
     tool_outputs: dict[str, str] = Field(default_factory=dict)
     tool_edited: dict[str, bool] = Field(default_factory=dict)
+    tool_outcomes: dict[str, ToolCallOutcome] = Field(default_factory=dict)
     diffs: list[MessageDiff] = Field(default_factory=list)
     created_at: str
+    delivery: Literal["unapplied"] | None = None
 
 
 class MessageListResponse(BaseModel):
@@ -239,16 +266,24 @@ class ShellResponse(BaseModel):
     preview: str | None = None
 
 
+class RunTimingResponse(BaseModel):
+    run_id: str
+    durations: dict[str, float]
+
+
 class SendMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str = ""
+    steer_run_id: str | None = None
     attachments: list[MessageAttachment] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _content_or_attachment(self) -> SendMessageRequest:
         if not self.content.strip() and not self.attachments:
             raise ValueError("content or attachments is required")
+        if self.steer_run_id is not None and (not self.content.strip() or self.attachments):
+            raise ValueError("Steering requires text without attachments")
         return self
 
 
@@ -257,6 +292,7 @@ class SendMessageResponse(BaseModel):
     run_id: str
     event_id: int
     status: str = "running"
+    message_id: str | None = None
 
 
 class PermissionDecisionRequest(BaseModel):
@@ -341,6 +377,23 @@ class CheckpointListResponse(BaseModel):
     checkpoints: list[CheckpointSummary] = Field(default_factory=list)
 
 
+class ChangeFile(BaseModel):
+    path: str
+    old_path: str | None = None
+    status: str
+    patch: str
+    truncated: bool = False
+
+
+class ChangesResponse(BaseModel):
+    scope: str
+    files: list[ChangeFile]
+    base: str | None = None
+    end: str | None = None
+    available: bool
+    truncated: bool = False
+
+
 class CheckpointCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -385,6 +438,7 @@ class EvolutionSummary(BaseModel):
     status: str = "idle"
     paused: bool = False
     events: list[dict[str, Any]] = Field(default_factory=list)
+    observations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EvolutionPauseRequest(BaseModel):

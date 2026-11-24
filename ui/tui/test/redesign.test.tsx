@@ -93,7 +93,7 @@ test("streamed paragraphs and code retain renderable identity through the final 
   }
 })
 
-test("welcome uses the supplied silhouette and compact blade line", async () => {
+test("welcome uses the Hornbill and keeps its silhouette in a split pane", async () => {
   const store = readyStore()
   const setup = await testRender(() => <App store={store} initialize={false} />, {
     width: 100,
@@ -101,12 +101,13 @@ test("welcome uses the supplied silhouette and compact blade line", async () => 
   })
   try {
     await setup.renderOnce()
-    expect(setup.captureCharFrame()).toContain("▄▄▄▄▄▄▄▄▄██▀")
-    expect(setup.captureCharFrame()).toContain("███▄▄▄▄▄▄█████████████████▀▀")
+    expect(setup.captureCharFrame()).toContain("██▀██████▄")
     expect(setup.captureCharFrame()).toContain("a coding agent")
     await setup.resize(60, 20)
     await setup.renderOnce()
-    expect(setup.captureCharFrame()).toContain("◆━━━━━━━━━━━━━━━━◥")
+    expect(setup.captureCharFrame()).toContain("▄██▄▄▄")
+    expect(setup.captureCharFrame()).toContain("▄█▄█▀▀▀▀")
+    expect(setup.captureCharFrame()).not.toContain("a coding agent")
     expect(setup.captureCharFrame()).toContain("Ask siwah")
   } finally {
     setup.renderer.destroy()

@@ -3,6 +3,49 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [Unreleased]
+
+### Changed
+
+- Use the Hornbill mascot on the terminal welcome screen and in the public brand assets.
+
+### Fixed
+
+- Stop forcing a second self-check after an otherwise complete answer.
+- Clarify in the default prompt that an unchanged file can be edited again after a successful write or edit.
+- Run one verification pass for consecutive file edits in the same model turn.
+- Run independent built-in file reads and searches concurrently when tool hooks are inactive.
+- Show when end-of-session hooks are running in the TUI.
+- Stop stalled interactive runs that repeatedly receive identical local read results.
+- Drain stdio MCP subprocess pipes at shutdown and enforce a response deadline when
+  a server sends unrelated messages.
+- Classify verifier outcomes using the pre-edit baseline and the actual check results.
+- Search project history, including compacted messages, and open a bounded message window.
+- Search the full skill catalog in build and plan modes with `skill_list`.
+- Review net turn diffs with `/changes` and workspace diffs with `/changes workspace`.
+- Restore drafts, cursor position, and attachments per session tab.
+- Show the active verifier or hook phase and elapsed time in the TUI.
+- Record matched pre- and post-promotion run observations for manual canary review.
+- Compare two replay reports per task, with pass outcomes, time, and allowance deltas.
+- Send a correction to an active task with `/steer` or queue a separate task with `/queue`.
+- Apply steering before dispatching another tool and verify edits already completed.
+- Use `/pending` to manage the session queue and recover unapplied corrections.
+- Keep queued prompts when a workspace is busy and stop dispatching them at shutdown.
+- Preserve tool outcomes and timings after reopening a session, including skipped calls.
+- Keep the queue count visible in narrow terminals and click it to open `/pending`.
+- Search messages, file paths, and tool output in the current session with `/find`.
+- Inspect wall-time spent on model calls, permissions, tools, checks, checkpoints,
+  and hooks with `/timing`.
+- Load the Changes file list before fetching individual patches.
+- Detect alternating or cycling reads that return identical results.
+- Keep workspace change review inside the session repository and support repositories with no commit yet.
+- Require the agent to acknowledge pre-existing verifier failures instead of accepting an "all tests pass" claim.
+- Remove a recovered unapplied correction from `/pending` after sending or editing it.
+- Terminate an MCP server that finishes starting after shutdown.
+- Treat allowance-skipped tool calls as skipped instead of failed.
+- Ignore compaction usage when matching canary observations to the actual model.
+- Compare heldout evaluation reports by aggregate metrics.
+
 ## [1.0.3] — 2026-11-23
 
 ### Fixed

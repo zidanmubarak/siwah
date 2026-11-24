@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import sys
 from pathlib import Path
 
 import httpx
@@ -97,6 +98,27 @@ async def test_prompt_is_queued_while_a_run_is_active(config, store: Store, samp
             assert queued.status_code == 200, queued.text
             assert queued.json()["status"] == "queued"
             assert len(runtime._queues[session.id]) == 1
+            url = f"/v1/sessions/{session.id}"
+            image = {"mime": "image/png", "data": "aW1hZ2U=", "name": "fixture.png"}
+            second = await client.post(
+                url + "/messages",
+                headers=headers,
+                json={"content": "edit later", "attachments": [image]},
+            )
+            first_id, second_id = queued.json()["run_id"], second.json()["run_id"]
+            snapshot = (await client.get(url, headers=headers)).json()["prompt_queue"]
+            assert [item["id"] for item in snapshot["items"]] == [first_id, second_id]
+            assert snapshot["items"][1]["attachment_count"] == 1
+            assert snapshot["event_seq"] == second.json()["event_id"]
+            path = f"{url}/queue/{second_id}"
+            assert (await client.delete(path)).status_code == 401
+            removed = await client.delete(path, headers=headers)
+            assert removed.json() == {
+                "id": second_id,
+                "content": "edit later",
+                "attachments": [image],
+            }
+            assert (await client.delete(path, headers=headers)).status_code == 404
     finally:
         blocker.cancel()
         await asyncio.gather(blocker, return_exceptions=True)
@@ -112,6 +134,36 @@ async def test_prompt_is_queued_while_a_run_is_active(config, store: Store, samp
     stored = store.get_session(session.id)
     assert stored is not None
     assert stored.status == "idle"
+    events = runtime.bus(session.id).history()
+    assert [event.data for event in events if event.type == "queue.changed"][-1] == {"items": []}
+    assert any(event.data.get("queued_prompt_id") == first_id for event in events)
+
+
+@pytest.mark.asyncio
+async def test_unapplied_correction_can_be_resolved(config, store: Store, sample_repo: Path):
+    runtime = DaemonRuntime(config, store=store)
+    app = create_app(config, runtime=runtime, token="test-token")
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    store.record_unapplied_correction(session.id, "msg_dropped", "fix the typo")
+    headers = {"Authorization": "Bearer test-token"}
+    messages_url = f"/v1/sessions/{session.id}/messages"
+    resolve_url = f"/v1/sessions/{session.id}/corrections/msg_dropped"
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        listed = await client.get(messages_url, headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert any(
+            message["id"] == "msg_dropped" and message.get("delivery") == "unapplied"
+            for message in listed.json()["messages"]
+        )
+        assert (await client.delete(resolve_url)).status_code == 401
+        resolved = await client.delete(resolve_url, headers=headers)
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json() == {"resolved": True}
+        after = await client.get(messages_url, headers=headers)
+        assert not any(message["id"] == "msg_dropped" for message in after.json()["messages"])
+        assert (await client.delete(resolve_url, headers=headers)).status_code == 404
 
 
 async def test_server_auth_sessions_and_sse(config, store: Store, sample_repo: Path):
@@ -451,3 +503,288 @@ async def test_server_accepts_image_attachments(config, store: Store, sample_rep
         messages = await client.get(f"/v1/sessions/{session_id}/messages", headers=headers)
         user = next(item for item in messages.json()["messages"] if item["role"] == "user")
         assert user["attachments"] == [{"mime": "image/png", "data": "YWJj", "name": "pasted.png"}]
+
+
+async def test_daemon_records_matching_canary_observations_across_reopen(
+    config, store, sample_repo, monkeypatch
+):
+    monkeypatch.setattr(
+        "siwah.server.runtime.load_state",
+        lambda: EvolutionState(tag="evo-test", status="canary", canary_tag="evo-test"),
+    )
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    before = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    store.record_run_observation(
+        run_id="baseline-run",
+        session=before,
+        model="mock/model-a",
+        tag="baseline",
+        tools=1,
+        errors=1,
+        corrected=False,
+        aborted=False,
+        allowance=0.002,
+    )
+    runtime.submit_run(session, "Read this project")
+    await runtime._tasks[session.id]
+    reopen = Store(store.path)
+    try:
+        groups = reopen.compare_run_observations(
+            before="baseline", after="evo-test", min_sessions=1
+        )
+        assert len(groups) == 1
+        assert groups[0]["ready"] is True
+        assert groups[0]["before"]["tool_error_rate"] == 1
+        assert groups[0]["after"]["tool_error_rate"] == 0
+        assert groups[0]["after"]["allowance_per_turn"] == pytest.approx(0.001)
+    finally:
+        reopen.close()
+
+
+async def test_active_run_applies_correction_before_old_tools_and_keeps_timing(
+    config, store, sample_repo, monkeypatch
+):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    started, release = asyncio.Event(), asyncio.Event()
+    requests = []
+
+    async def stream(role, *, messages, **kwargs):
+        requests.append(list(messages))
+        if len(requests) == 1:
+            started.set()
+            await release.wait()
+            return outcome(
+                tool_calls=[tool_call("write_file", {"path": "skip.txt", "content": "old"})]
+            )
+        return outcome(text="Correction followed.")
+
+    monkeypatch.setattr(runtime.router, "stream", stream)
+    app = create_app(config, runtime=runtime, token="test-token")
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        url = f"/v1/sessions/{session.id}"
+        headers = {"Authorization": "Bearer test-token"}
+        task = await client.post(url + "/messages", headers=headers, json={"content": "Start."})
+        run_id = task.json()["run_id"]
+        await asyncio.wait_for(started.wait(), 5)
+        try:
+            stale = await client.post(
+                url + "/messages",
+                headers=headers,
+                json={"content": "Wrong target", "steer_run_id": "old"},
+            )
+            assert stale.status_code == 409
+            accepted = await client.post(
+                url + "/messages",
+                headers=headers,
+                json={"content": "Leave skip.txt alone.", "steer_run_id": run_id},
+            )
+            assert accepted.json()["status"] == "steering"
+        finally:
+            release.set()
+            if runtime.is_running(session.id):
+                await runtime._tasks[session.id]
+        assert not (sample_repo / "skip.txt").exists()
+        assert requests[1][-1].content == "Leave skip.txt alone."
+        assert requests[1][-2].role == "tool"
+        assert "superseded" in (requests[1][-2].content or "")
+        notes = [
+            item for item in runtime.bus(session.id).history() if item.type == "steering.applied"
+        ]
+        assert notes[0].data["message_id"] == accepted.json()["message_id"]
+        assert any(
+            item.content == "Leave skip.txt alone." for item in store.get_messages(session.id)
+        )
+        timing = (await client.get(url + "/timing", headers=headers)).json()
+        assert timing["run_id"] == run_id
+        durations = timing["durations"]
+        assert durations["model"] > 0
+        assert sum(value for name, value in durations.items() if name != "total") == pytest.approx(
+            durations["total"], abs=0.05
+        )
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+async def test_steering_during_tools_skips_unstarted_calls(
+    config, store, sample_repo, monkeypatch, parallel
+):
+    if not parallel:
+        python = Path(sys.executable).as_posix()
+        config.verify.auto = True
+        config.permissions.mode = "yolo"
+        (sample_repo / "check.py").write_text(
+            "from pathlib import Path\nassert Path('file1.txt').read_text() == 'old'\n",
+            encoding="utf-8",
+        )
+        (sample_repo / "verify.toml").write_text(
+            f"[commands]\ntest = '\"{python}\" check.py'\n", encoding="utf-8"
+        )
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    siblings = [f"file{index}.txt" for index in range(6 if parallel else 2)]
+    for name in siblings:
+        (sample_repo / name).write_text("old", encoding="utf-8")
+    tool = "read_file" if parallel else "write_file"
+    calls = [
+        tool_call(tool, {"path": path, **({} if parallel else {"content": "new"})}, f"file-{index}")
+        for index, path in enumerate(siblings)
+    ]
+    started, release = asyncio.Event(), asyncio.Event()
+    executed, requests = [], []
+    execute = runtime.loop.tools.execute
+
+    async def blocking_tool(name, context, arguments):
+        executed.append(arguments["path"])
+        if arguments["path"] == siblings[0]:
+            started.set()
+            await release.wait()
+        return await execute(name, context, arguments)
+
+    async def stream(role, *, messages, **kwargs):
+        requests.append(list(messages))
+        return outcome(tool_calls=calls) if len(requests) == 1 else outcome(text="Updated.")
+
+    monkeypatch.setattr(runtime.loop.tools, "execute", blocking_tool)
+    monkeypatch.setattr(runtime.router, "stream", stream)
+    run, _ = runtime.start_run(session, "Start")
+    task = runtime._tasks[session.id]
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        runtime.steer(session.id, "Skip the remaining files.", run)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, 5)
+    executed_count = 4 if parallel else 1
+    assert set(executed) == set(siblings[:executed_count])
+    tool_responses = [message for message in requests[1] if message.role == "tool"]
+    assert len(tool_responses) == len(siblings)
+    assert all("superseded" in (item.content or "") for item in tool_responses[executed_count:])
+    assert requests[1][-1].content == "Skip the remaining files."
+    stored_calls = next(
+        message["tool_outcomes"]
+        for message in store.get_message_views(session.id)
+        if message["tool_calls"]
+    )
+    skipped = stored_calls[tool_responses[executed_count].tool_call_id]
+    assert skipped["status"] == "skipped"
+    assert "superseded" in skipped["error"]
+    finished = stored_calls[tool_responses[0].tool_call_id]
+    assert finished["status"] == "ok"
+    assert finished["duration_ms"] >= 0
+    if not parallel:
+        assert (sample_repo / siblings[0]).read_text(encoding="utf-8") == "new"
+        assert (sample_repo / siblings[1]).read_text(encoding="utf-8") == "old"
+        verification = [
+            event.data["status"]
+            for event in runtime.bus(session.id).history()
+            if event.type == "verifier"
+        ]
+        assert verification[-2:] == ["running", "passed"]
+
+
+async def test_late_correction_survives_reload_as_transcript_only(
+    config, store, sample_repo, monkeypatch
+):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    finishing, release = asyncio.Event(), asyncio.Event()
+    complete = runtime.loop._complete
+
+    async def completing(*args, **kwargs):
+        finishing.set()
+        await release.wait()
+        return await complete(*args, **kwargs)
+
+    monkeypatch.setattr(runtime.loop, "_complete", completing)
+    run, _ = runtime.start_run(session, "Start")
+    task = runtime._tasks[session.id]
+    try:
+        await asyncio.wait_for(finishing.wait(), 5)
+        message_id, _ = runtime.steer(session.id, "Late correction.", run)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, 5)
+    dropped = [
+        event for event in runtime.bus(session.id).history() if event.type == "steering.dropped"
+    ]
+    assert [event.data["message_id"] for event in dropped] == [message_id]
+    app = create_app(config, runtime=runtime, token="test-token")
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/v1/sessions/{session.id}/messages", headers={"Authorization": "Bearer test-token"}
+        )
+    note = response.json()["messages"][-1]
+    assert (note["id"], note["content"], note["delivery"]) == (
+        message_id,
+        "Late correction.",
+        "unapplied",
+    )
+    assert all(
+        item.content != "Late correction." for item in store.get_context_messages(session.id)
+    )
+    reopened = Store(store.path)
+    try:
+        assert reopened.get_message_views(session.id)[-1]["delivery"] == "unapplied"
+    finally:
+        reopened.close()
+
+
+async def test_queue_keeps_its_order_and_retries_when_workspace_becomes_available(
+    config, store, sample_repo, monkeypatch
+):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    monkeypatch.setattr("siwah.server.runtime.QUEUE_RETRY_DELAY_S", 0.01)
+    blocker = asyncio.create_task(asyncio.sleep(30))
+    runtime._tasks[session.id] = blocker
+    first, _, _ = runtime.submit_run(session, "First in queue")
+    second, _, _ = runtime.submit_run(session, "Second in queue")
+    blocker.cancel()
+    await asyncio.gather(blocker, return_exceptions=True)
+    runtime._tasks.pop(session.id, None)
+    with runtime._exclusive_operation(session.id):
+        runtime._drain_queue(session.id)
+        items = runtime.queue_snapshot(session.id)["items"]
+        assert [item["id"] for item in items] == [first, second]
+        assert "busy" in items[0]["blocked_reason"]
+        assert "blocked_reason" not in items[1]
+        assert session.id in runtime._queue_retries
+        assert not runtime.is_running(session.id)
+    for _ in range(200):
+        if not runtime.queue_snapshot(session.id)["items"] and not runtime.is_running(session.id):
+            break
+        await asyncio.sleep(0.01)
+    messages = store.get_messages(session.id)
+    assert [item.content for item in messages if item.role == "user"] == [
+        "First in queue",
+        "Second in queue",
+    ]
+    assert not runtime._queue_retries
+
+
+async def test_shutdown_does_not_start_queued_work(config, store, sample_repo, monkeypatch):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    started = asyncio.Event()
+    completed = asyncio.Event()
+    provider_calls = 0
+
+    async def stream(role, **kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        started.set()
+        await completed.wait()
+
+    monkeypatch.setattr(runtime.router, "stream", stream)
+    runtime.start_run(session, "Active")
+    await asyncio.wait_for(started.wait(), 5)
+    queued, _, _ = runtime.submit_run(session, "Never dispatch on shutdown")
+    await runtime.close()
+    assert provider_calls == 1
+    assert not runtime._tasks
+    assert runtime.queue_snapshot(session.id)["items"][0]["id"] == queued

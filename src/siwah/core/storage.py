@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..core.types import Message, MessageAttachment, ToolCall, Usage
+from ..core.types import SUPERSEDED_TOOL_MESSAGE, Message, MessageAttachment, ToolCall, Usage
 from ..harness.memory import redact_secrets
 from ..paths import ensure_home, state_path, trajectories_dir
 
@@ -28,6 +28,27 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL,
     metadata TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS run_timings (
+    run_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    durations TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS run_timings_session ON run_timings(session_id, created_at);
+CREATE TABLE IF NOT EXISTS run_observations (
+    run_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    cwd TEXT NOT NULL,
+    model TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    tool_calls INTEGER NOT NULL,
+    tool_errors INTEGER NOT NULL,
+    correction INTEGER NOT NULL,
+    aborted INTEGER NOT NULL,
+    allowance REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS run_observations_by_tag ON run_observations(tag, cwd, model);
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -41,6 +62,14 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_session_seq ON messages(session_id, seq);
+CREATE TABLE IF NOT EXISTS unapplied_corrections (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS unapplied_corrections_session ON unapplied_corrections(session_id, seq);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     session_id UNINDEXED,
     message_id UNINDEXED,
@@ -54,6 +83,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     arguments TEXT NOT NULL DEFAULT '{}',
     result TEXT,
     status TEXT NOT NULL,
+    duration_ms REAL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS usage (
@@ -152,6 +182,11 @@ class Store:
                 self._connection.execute(
                     "ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'"
                 )
+            tool_columns = {
+                str(row[1]) for row in self._connection.execute("PRAGMA table_info(tool_calls)")
+            }
+            if "duration_ms" not in tool_columns:
+                self._connection.execute("ALTER TABLE tool_calls ADD COLUMN duration_ms REAL")
             self._connection.commit()
 
     def close(self) -> None:
@@ -271,10 +306,7 @@ class Store:
         message = Message.model_validate(_redacted_copy(message.model_dump(mode="json")))
         now = _now()
         with self._lock:
-            seq = self._connection.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()[0]
+            seq = self._next_message_seq(session_id)
             self._connection.execute(
                 "INSERT INTO messages (id, session_id, seq, role, content, reasoning, attachments,"
                 " tool_calls, tool_call_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -305,6 +337,36 @@ class Store:
             )
             self._connection.commit()
         return message_id
+
+    def _next_message_seq(self, session_id: str) -> int:
+        return self._connection.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM ("
+            "SELECT MAX(seq) AS seq FROM messages WHERE session_id = ? UNION ALL "
+            "SELECT MAX(seq) AS seq FROM unapplied_corrections WHERE session_id = ?)",
+            (session_id, session_id),
+        ).fetchone()[0]
+
+    def record_unapplied_correction(self, session_id: str, message_id: str, content: str) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO unapplied_corrections (id, session_id, seq, content, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    message_id,
+                    session_id,
+                    self._next_message_seq(session_id),
+                    redact_secrets(content),
+                    _now(),
+                ),
+            )
+
+    def delete_unapplied_correction(self, session_id: str, message_id: str) -> bool:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "DELETE FROM unapplied_corrections WHERE session_id = ? AND id = ?",
+                (session_id, message_id),
+            )
+            return cursor.rowcount > 0
 
     def get_messages(self, session_id: str) -> list[Message]:
         with self._lock:
@@ -390,8 +452,26 @@ class Store:
                 "SELECT * FROM messages WHERE session_id = ? ORDER BY seq", (session_id,)
             ).fetchall()
             tool_rows = self._connection.execute(
-                "SELECT id, message_id, name, arguments, result FROM tool_calls"
+                "SELECT id, message_id, name, arguments, result, status, duration_ms FROM tool_calls"
                 " WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+            legacy_durations = {}
+            if any(row["duration_ms"] is None for row in tool_rows):
+                legacy_durations = {
+                    row["tool_call_id"]: row["duration_ms"]
+                    for row in self._connection.execute(
+                        "SELECT json_extract(payload, '$.tool_call_id') AS tool_call_id,"
+                        " json_extract(payload, '$.duration_ms') AS duration_ms"
+                        " FROM trajectories WHERE session_id = ?"
+                        " AND json_extract(payload, '$.type') = 'tool'"
+                        " AND json_type(payload, '$.duration_ms') IN ('integer', 'real')"
+                        " ORDER BY seq",
+                        (session_id,),
+                    )
+                }
+            corrections = self._connection.execute(
+                "SELECT id, seq, content, created_at FROM unapplied_corrections WHERE session_id = ?",
                 (session_id,),
             ).fetchall()
         views: list[dict[str, Any]] = []
@@ -407,6 +487,7 @@ class Store:
         diffs: dict[str, list[dict[str, str]]] = {}
         outputs: dict[str, dict[str, str]] = {}
         edited: dict[str, dict[str, bool]] = {}
+        outcomes: dict[str, dict[str, Any]] = {}
         for row in tool_rows:
             message_id = row["message_id"] or call_to_message.get(row["id"])
             try:
@@ -417,6 +498,24 @@ class Store:
             data = result.get("data") if isinstance(result, dict) else None
             if not message_id:
                 continue
+            error = result.get("error") if isinstance(result, dict) else None
+            status = row["status"]
+            if (
+                status == "error"
+                and isinstance(error, str)
+                and error.startswith(SUPERSEDED_TOOL_MESSAGE)
+            ):
+                status = "skipped"
+            if status in {"ok", "error", "cancelled", "skipped"}:
+                outcomes.setdefault(message_id, {})[row["id"]] = {
+                    "status": status,
+                    "error": error,
+                    "duration_ms": (
+                        row["duration_ms"]
+                        if row["duration_ms"] is not None
+                        else legacy_durations.get(row["id"])
+                    ),
+                }
             full_output = data.get("full_output") if isinstance(data, dict) else None
             if isinstance(full_output, str):
                 # Older versions appended the verifier summary to full_output.
@@ -437,6 +536,12 @@ class Store:
             item["diffs"] = diffs.get(item["id"], [])
             item["tool_outputs"] = outputs.get(item["id"], {})
             item["tool_edited"] = edited.get(item["id"], {})
+            item["tool_outcomes"] = outcomes.get(item["id"], {})
+        if corrections:
+            views.extend(
+                {**dict(row), "role": "user", "delivery": "unapplied"} for row in corrections
+            )
+            views.sort(key=lambda item: item["seq"])
         return views
 
     def last_usage_tokens(self, session_id: str) -> tuple[int, int]:
@@ -450,26 +555,128 @@ class Store:
             return (0, 0)
         return (int(row["input_tokens"]), int(row["cache_read_tokens"]))
 
+    def record_run_timing(self, session_id: str, run_id: str, durations: dict[str, float]) -> None:
+        with self._lock:
+            self._connection.execute(
+                "INSERT OR IGNORE INTO run_timings VALUES (?, ?, ?, ?)",
+                (run_id, session_id, json.dumps(durations), _now()),
+            )
+            self._connection.commit()
+
+    def latest_run_timing(self, session_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT run_id, durations FROM run_timings WHERE session_id = ? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        return {"run_id": row["run_id"], "durations": json.loads(row["durations"])} if row else None
+
+    def record_run_observation(
+        self,
+        *,
+        run_id: str,
+        session: Session,
+        model: str,
+        tag: str,
+        tools: int,
+        errors: int,
+        corrected: bool,
+        aborted: bool,
+        allowance: float,
+    ) -> None:
+        with self._lock:
+            self._connection.execute(
+                "INSERT OR IGNORE INTO run_observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    session.id,
+                    session.cwd,
+                    model,
+                    tag,
+                    _now(),
+                    tools,
+                    errors,
+                    int(corrected),
+                    int(aborted),
+                    allowance,
+                ),
+            )
+            self._connection.commit()
+
+    def compare_run_observations(
+        self, *, before: str, after: str, min_sessions: int
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT cwd, model, tag, COUNT(*) AS turns, COUNT(DISTINCT session_id) AS sessions,"
+                " COALESCE(1.0 * SUM(tool_errors) / NULLIF(SUM(tool_calls), 0), 0) AS tool_error_rate,"
+                " AVG(correction) AS correction_hint_rate, AVG(aborted) AS abort_rate,"
+                " AVG(allowance) AS allowance_per_turn"
+                " FROM run_observations WHERE tag IN (?, ?) GROUP BY cwd, model, tag",
+                (before, after),
+            ).fetchall()
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            metrics = dict(row)
+            cwd, model, tag = (str(metrics.pop(key)) for key in ("cwd", "model", "tag"))
+            groups.setdefault((cwd, model), {})[tag] = metrics
+        return [
+            {
+                "cwd": cwd,
+                "model": model,
+                "before": sides.get(before),
+                "after": sides[after],
+                "ready": all(
+                    sides.get(tag, {}).get("sessions", 0) >= min_sessions for tag in (before, after)
+                ),
+            }
+            for (cwd, model), sides in groups.items()
+            if after in sides
+        ]
+
     def recall_messages(
         self,
         query: str,
         limit: int = 10,
         *,
         exclude_session_id: str | None = None,
+        compacted_through: int = 0,
+        cwd: str | None = None,
     ) -> list[dict[str, Any]]:
         sql = (
             "SELECT f.session_id, f.message_id, f.content, s.title, s.cwd, s.updated_at"
             " FROM messages_fts f JOIN sessions s ON s.id = f.session_id"
+            " JOIN messages m ON m.id = f.message_id AND m.session_id = f.session_id"
             " WHERE messages_fts MATCH ?"
         )
         params: list[Any] = [query]
         if exclude_session_id:
-            sql += " AND f.session_id != ?"
-            params.append(exclude_session_id)
-        sql += " ORDER BY s.updated_at DESC LIMIT ?"
+            sql += " AND (f.session_id != ? OR m.seq <= ?)"
+            params.extend([exclude_session_id, compacted_through])
+        if cwd is not None:
+            sql += " AND s.cwd = ?"
+            params.append(cwd)
+        sql += " ORDER BY bm25(messages_fts), s.updated_at DESC, m.seq DESC LIMIT ?"
         params.append(limit)
         with self._lock:
             rows = self._connection.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def recall_window(
+        self, message_id: str, *, cwd: str, radius: int, current_id: str, through: int | None
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT m.id AS message_id, m.session_id, m.role, m.content"
+                " FROM messages anchor JOIN sessions s ON s.id = anchor.session_id"
+                " JOIN messages m ON m.session_id = anchor.session_id"
+                " WHERE anchor.id = ? AND s.cwd = ?"
+                " AND (? IS NULL OR s.id != ? OR (anchor.seq <= ? AND m.seq <= ?))"
+                " AND m.seq BETWEEN anchor.seq - ? AND anchor.seq + ?"
+                " AND m.role IN ('user', 'assistant') ORDER BY m.seq",
+                (message_id, cwd, through, current_id, through, through, radius, radius),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def search_messages(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -530,15 +737,16 @@ class Store:
         arguments: dict[str, Any],
         result: dict[str, Any],
         status: str,
+        duration_ms: float | None = None,
     ) -> None:
         with self._lock:
             cursor = self._connection.execute(
                 "INSERT INTO tool_calls"
-                " (id, session_id, message_id, name, arguments, result, status, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " (id, session_id, message_id, name, arguments, result, status, duration_ms, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(id) DO UPDATE SET"
                 " name = excluded.name, arguments = excluded.arguments,"
-                " result = excluded.result, status = excluded.status"
+                " result = excluded.result, status = excluded.status, duration_ms = excluded.duration_ms"
                 " WHERE tool_calls.session_id = excluded.session_id"
                 " AND tool_calls.message_id IS excluded.message_id",
                 (
@@ -549,6 +757,7 @@ class Store:
                     json.dumps(_redacted_copy(arguments), ensure_ascii=False),
                     json.dumps(_redacted_copy(result), ensure_ascii=False),
                     status,
+                    duration_ms,
                     _now(),
                 ),
             )

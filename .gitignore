@@ -36,6 +36,9 @@ budget-state.json
 supervisor.key
 config.local.toml
 
+# Local browser/automation artifacts
+.playwright-mcp/
+
 # OS and editor metadata
 .DS_Store
 Thumbs.db

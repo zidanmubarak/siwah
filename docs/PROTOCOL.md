@@ -78,6 +78,9 @@ supervisor and the request carries `X-Siwah-Challenge`, the response includes
 | `POST` | `/v1/sessions/{session_id}/shell` | Direct shell command; `409` when approval is needed |
 | `POST` | `/v1/sessions/{session_id}/permissions/{request_id}` | Approve or deny a pending request |
 | `GET` | `/v1/sessions/{session_id}/checkpoints` | List checkpoints |
+| `GET` | `/v1/sessions/{id}/changes` | List changes or load one patch with `file_path` |
+| `GET` | `/v1/sessions/{id}/timing` | Latest daemon task elapsed times in milliseconds |
+| `DELETE` | `/v1/sessions/{id}/corrections/{message_id}` | Dismiss a recovered unapplied correction |
 | `POST` | `/v1/sessions/{session_id}/checkpoints` | Create a manual checkpoint |
 | `POST` | `/v1/sessions/{session_id}/rewind` | Restore a checkpoint (`confirm=true` required) |
 | `POST` | `/v1/sessions/{session_id}/compact` | Persist a structured context summary |
@@ -158,7 +161,7 @@ uses the sequence number. `seq` is monotonic per session.
 
 | Type | Data |
 |---|---|
-| `status` | `{state: "idle" \| "running" \| "waiting_permission" \| "aborting"}` |
+| `status` | `{state: "idle" \| "running" \| "waiting_permission" \| "aborting", phase?: "finishing_hooks"}` |
 | `message.start` | `{message_id, role}` |
 | `message.delta` | `{message_id, text}` |
 | `message.end` | `{message_id, finish_reason}` |
@@ -175,7 +178,7 @@ uses the sequence number. `seq` is monotonic per session.
 | `usage` | `{step_id, model, input, output, reasoning, cache_read, allowance, billing_source}` |
 | `checkpoint` | `{id, label?, commit, created_at}` |
 | `context` | `{tokens, percent, context_window, pruned, compacted}` |
-| `verifier` | `{status, summary?, attempt?, new_failures?}` |
+| `verifier` | `{status, verdict?, summary?, attempt?, new_failures?}` |
 | `plan` | `{path, content}` |
 | `evolution.event` | `{kind, candidate_id?, tag?, score?, status}` |
 | `error` | `{code, message, retryable, details?}` |
@@ -288,3 +291,28 @@ negotiation header beyond `X-Siwah-Protocol`.
   database and resume from the returned sequence.
 - The OpenAPI document is a tooling and SDK contract, not a promise that every
   endpoint is stable outside the compatibility policy above.
+
+
+A message submission can include `steer_run_id` and text to target the
+active run. The server returns 409 for a stale run ID. A successful submission
+acknowledges receipt. The `steering.applied` event identifies the durable
+user message. `steering.dropped` identifies a correction the run ended
+before applying. The messages endpoint includes it as a transcript-only
+record with `delivery: "unapplied"`. Steering preserves the next-task FIFO.
+
+The session detail includes a `prompt_queue` snapshot with the current
+`event_seq` and ordered prompt summaries. Each summary has a stable ID,
+a short preview, an attachment count, and a blocked reason when applicable.
+`queue.changed` supplies the updated summaries. A queued run's first user
+`message.start` includes its `queued_prompt_id` and content. An authenticated
+`DELETE /v1/sessions/{session_id}/queue/{prompt_id}` cancels a pending
+entry and returns its text and attachments for optional draft recovery.
+An authenticated
+`DELETE /v1/sessions/{session_id}/corrections/{message_id}` removes an
+unapplied correction after the user sends it as a follow-up or restores it
+to the editor.
+
+Message records can include `tool_outcomes` keyed by tool-call ID. An
+outcome carries the final status, an optional error, and an optional
+duration in milliseconds. Live `tool.end` events use `skipped` when
+steering supersedes a call before dispatch and include its argument summary.

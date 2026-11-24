@@ -297,7 +297,7 @@ max_retries = 2
 | `max_steps_ceiling` | `300` | Upper bound for progress-based extensions. |
 | `stall_limit` | `8` | Repeated unproductive steps before the stall guard stops a run. |
 | `max_completion_nudges` | `2` | Completion nudges for memory cues and final checks. |
-| `self_check_min_steps` | `12` | Minimum steps before a self-check nudge. |
+| `self_check_min_steps` | `12` | Retained for compatibility; no longer affects completion. |
 | `tool_output_limit` | `100000` | Characters before tool output is offloaded to a file handle. |
 | `bash_timeout_s` | `120` | Default shell command timeout. |
 | `web_timeout_s` | `30` | Default web fetch timeout. |

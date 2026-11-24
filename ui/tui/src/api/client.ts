@@ -233,6 +233,22 @@ export class SiwahApi {
     return this.request<CheckpointList>(`/v1/sessions/${encodeURIComponent(sessionId)}/checkpoints`)
   }
 
+  changes(
+    sessionId: string,
+    scope: "turn" | "workspace",
+    checkpointId?: string,
+    filePath?: string,
+    end?: string,
+  ) {
+    const query = new URLSearchParams({ scope })
+    if (checkpointId) query.set("checkpoint_id", checkpointId)
+    if (filePath !== undefined) query.set("file_path", filePath)
+    if (end) query.set("end_checkpoint_id", end)
+    return this.request<Schemas["ChangesResponse"]>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/changes?${query}`,
+    )
+  }
+
   createCheckpoint(sessionId: string, label?: string) {
     return this.request<Checkpoint>(`/v1/sessions/${encodeURIComponent(sessionId)}/checkpoints`, {
       method: "POST",
@@ -287,6 +303,23 @@ export class SiwahApi {
     })
   }
 
+  timing(sessionId: string) {
+    return this.request<Schemas["RunTimingResponse"] | null>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/timing`,
+    )
+  }
+
+  steer(sessionId: string, runId: string, content: string) {
+    return this.request<Schemas["SendMessageResponse"]>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, steer_run_id: runId }),
+      },
+    )
+  }
+
   sendMessage(sessionId: string, content: string, attachments: MessageAttachment[] = []) {
     return this.request<Schemas["SendMessageResponse"]>(
       `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
@@ -302,6 +335,20 @@ export class SiwahApi {
     return this.request<Schemas["OkResponse"]>(
       `/v1/sessions/${encodeURIComponent(sessionId)}/abort`,
       { method: "POST" },
+    )
+  }
+
+  removeQueuedPrompt(sessionId: string, promptId: string) {
+    return this.request<Schemas["QueuedPromptResponse"]>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(promptId)}`,
+      { method: "DELETE" },
+    )
+  }
+
+  resolveCorrection(sessionId: string, messageId: string) {
+    return this.request<{ resolved: boolean }>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/corrections/${encodeURIComponent(messageId)}`,
+      { method: "DELETE" },
     )
   }
 

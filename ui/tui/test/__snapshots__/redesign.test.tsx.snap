@@ -71,19 +71,19 @@ exports[`toast redesigned surface snapshot: toast-workbench 1`] = `
                           │ ✓ SUCCESS                                       ×   
                           │ Tests passed. The workspace is ready.               
                           └───────────────────────────────────────────────────  
-                             ███▄▄▄▄▄▄█████████████████▀▀                       
-                             █▀███████████████████▀▀▀                           
-                             ███████▀▀▀▀▀▀▀▀▀▀                                  
-                          ██████   ▄▀▀▀ ▀ █   █  ▀▀▄ █                          
-                          ████      ▀▀▄ █ █▄▀▄█ ▄▀▀█ █▀▀▄                       
-                        ████████   ▀▀▀  ▀ ▀   ▀  ▀▀▀ ▀  ▀                       
                                                                                 
-                       a coding agent that learns with you                      
+                    ▄███▄▄▄                                                     
+                   ██▀██████▄  siwah                                            
+                 ▄█████    ▀▀  a coding agent that learns with you              
+               ▄██████▀                                                         
+              ██▀▀ ██▄                                                          
                                                                                 
                                                                                 
                       Build something. Understand anything.                     
                                                                                 
                        /sessions  resume   /help  explore                       
+                                                                                
+                                                                                
                                                                                 
   ╭──────────────────────────────────────────────────────────────────────────╮  
   │ › build ask                                    ctx — · 0 tok · $0.000000 │  

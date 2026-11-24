@@ -101,9 +101,10 @@ afterAll(() => {
   rmSync(home, { recursive: true, force: true })
 })
 
-test("switch clears session-local state before deferred hydration and keeps the composer", async () => {
+test("switch clears session-local state and restores only the selected session draft", async () => {
   const response = deferred<Session>()
-  const store = ready({ session: () => response.promise })
+  const store = ready({ session: (id: string) => (id === "b" ? response.promise : session(id)) })
+  await store.openSession("a")
   store.running(true)
   event(store, 1, "permission.request", { request_id: "permission-a", choices: ["once"] })
   event(store, 2, "message.start", { message_id: "shared", role: "assistant" })
@@ -122,6 +123,49 @@ test("switch clears session-local state before deferred hydration and keeps the 
   await opening
   internal(store).flushStreams()
   expect(store.messages()).toEqual([])
+  expect(store.promptText()).toBe("")
+  store.promptText("draft for b")
+  await store.openSession("a")
+  expect(store.promptText()).toBe("unsent draft")
+  await store.openSession("b")
+  expect(store.promptText()).toBe("draft for b")
+})
+
+test("verifier and hook phases stay active until the matching completion", () => {
+  const store = ready()
+  store.running(true)
+  event(store, 1, "verifier", { status: "baseline" })
+  expect(store.runPhase()?.label).toBe("checking baseline")
+  event(store, 2, "verifier", { status: "running" })
+  expect(store.runPhase()?.label).toBe("running checks")
+  event(store, 3, "verifier", { status: "passed" })
+  expect(store.runPhase()).toBeNull()
+  event(store, 4, "status", { state: "running", phase: "finishing_hooks" })
+  expect(store.runPhase()?.label).toBe("finishing hooks")
+  event(store, 5, "run.end", { reason: "completed" })
+  expect(store.runPhase()).toBeNull()
+})
+
+test("active steering uses the run ID and delivery does not dequeue the next task", async () => {
+  const submitted: string[][] = []
+  const store = ready({
+    steer: async (sessionId: string, runId: string, content: string) => {
+      submitted.push([sessionId, runId, content])
+      return { status: "steering", run_id: runId, message_id: "correction", event_id: 0 }
+    },
+  })
+  store.running(true)
+  store.activeRunId("active")
+  store.queuedPrompts([{ id: "next", text: "Next task." }])
+  expect(await store.steerPrompt("Use the read-only path.")).toBe(true)
+  expect(submitted).toEqual([["a", "active", "Use the read-only path."]])
+  expect(store.messages()).toHaveLength(0)
+  event(store, 1, "steering.applied", {
+    message_id: "correction",
+    content: "Use the read-only path.",
+  })
+  expect(store.messages()[0]?.content).toBe("Use the read-only path.")
+  expect(store.queuedPrompts()).toHaveLength(1)
 })
 
 test("newest session navigation wins even when the first response arrives last", async () => {
@@ -570,4 +614,51 @@ test("run.end clears obsolete permissions and refreshes completion files", async
   expect(store.permission()).toBeNull()
   expect(store.files()).toEqual(["after.txt"])
   expect(limits).toEqual([5000, 5000])
+})
+
+test("the daemon queue rehydrates per session and ignores older queue events", async () => {
+  const item = { id: "queued_a", preview: "Continue later", attachment_count: 1 }
+  const store = ready({
+    session: async (id: string) =>
+      session(id, {
+        last_event_seq: 3,
+        prompt_queue: { event_seq: 8, items: id === "a" ? [item] : [] },
+      }),
+    removeQueuedPrompt: async () => ({ id: item.id, content: item.preview, attachments: [] }),
+  })
+  await store.openSession("a")
+  expect(store.queuedPrompts()).toEqual([{ id: item.id, text: item.preview, attachmentCount: 1 }])
+  event(store, 5, "queue.changed", { items: [] })
+  expect(store.queuedPrompts()).toHaveLength(1)
+  await store.openSession("b")
+  expect(store.queuedPrompts()).toEqual([])
+  await store.openSession("a")
+  expect(store.queuedPrompts()).toHaveLength(1)
+  expect((await store.removeQueuedPrompt(item.id))?.content).toBe(item.preview)
+  event(store, 9, "queue.changed", { items: [] })
+  event(store, 10, "message.start", {
+    role: "user",
+    message_id: "started-b",
+    queued_prompt_id: "queued_b",
+    content: "Queued from another tab",
+  })
+  expect(store.queuedPrompts()).toEqual([])
+  expect(store.messages()).toMatchObject([{ id: "started-b", content: "Queued from another tab" }])
+})
+
+test("late corrections are visible after hydration and are not duplicated by replay", async () => {
+  const correction = {
+    id: "correction-a",
+    seq: 2,
+    role: "user",
+    delivery: "unapplied",
+    content: "Use the other fixture.",
+    created_at: "2026-01-01T00:00:00Z",
+  }
+  const store = ready({ messages: async () => ({ messages: [correction] }) })
+  await store.openSession("a")
+  event(store, 1, "steering.dropped", { message_id: correction.id, content: correction.content })
+  expect(store.messages()).toMatchObject([
+    { id: correction.id, content: correction.content, unapplied: true },
+  ])
 })

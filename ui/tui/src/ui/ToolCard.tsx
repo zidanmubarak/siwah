@@ -60,12 +60,18 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
   const statusColor = () => {
     if (props.tool.status === "running") return theme.accentAlt
     if (props.tool.status === "error") return theme.error
-    if (props.tool.status === "cancelled") return theme.dim
+    if (props.tool.status === "cancelled" || props.tool.status === "skipped") return theme.dim
     return theme.success
   }
   const duration = () => {
     const value = props.tool.durationMs
-    if (value === null || value === undefined || props.tool.status === "running") return ""
+    if (
+      value === null ||
+      value === undefined ||
+      props.tool.status === "running" ||
+      props.tool.status === "skipped"
+    )
+      return ""
     return value < 1000 ? `${Math.round(value)}ms` : `${(value / 1000).toFixed(1)}s`
   }
   const codeFiletype = () => (isCode() ? fileType(label()) : null)
@@ -119,7 +125,7 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
           {labelText()}
         </text>
       </box>
-      <Show when={expanded() || props.tool.status === "error" || props.tool.status === "cancelled"}>
+      <Show when={expanded() || (props.tool.status !== "ok" && props.tool.status !== "running")}>
         <text fg={statusColor()} wrapMode="none">
           {`${props.tool.status === "ok" ? "done" : props.tool.status}${duration() ? ` · ${duration()}` : ""}`}
         </text>

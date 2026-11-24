@@ -8,20 +8,20 @@ exports[`welcome screen snapshot and status bar: welcome-100x32 1`] = `
                                                                                                     
                                                                                                     
                                                                                                     
-                                                          ▄▄▄▄▄▄▄▄▄██▀                              
-                                       ███▄▄▄▄▄▄█████████████████▀▀                                 
-                                       █▀███████████████████▀▀▀                                     
-                                       ███████▀▀▀▀▀▀▀▀▀▀                                            
-                                    ██████   ▄▀▀▀ ▀ █   █  ▀▀▄ █                                    
-                                    ████      ▀▀▄ █ █▄▀▄█ ▄▀▀█ █▀▀▄                                 
-                                  ████████   ▀▀▀  ▀ ▀   ▀  ▀▀▀ ▀  ▀                                 
                                                                                                     
-                                 a coding agent that learns with you                                
+                                                                                                    
+                              ▄███▄▄▄                                                               
+                             ██▀██████▄  siwah                                                      
+                           ▄█████    ▀▀  a coding agent that learns with you                        
+                         ▄██████▀                                                                   
+                        ██▀▀ ██▄                                                                    
                                                                                                     
                                                                                                     
                                 Build something. Understand anything.                               
                                                                                                     
                                  /sessions  resume   /help  explore                                 
+                                                                                                    
+                                                                                                    
                                                                                                     
                                                                                                     
                                                                                                     
@@ -82,9 +82,9 @@ exports[`permission dialog snapshot: permission-100x30 1`] = `
                                                                                                     
                                                                                                     
                                                                                                     
-                                         ◆━━━━━━━━━━━━━━━━◥                                         
-                                                siwah                                               
-                                                                                                    
+                                             ▄██▄▄▄                                                 
+                                            ▄█▄█▀▀▀▀  siwah                                         
+                                          ▄█▀▀██                                                    
                                                                                                     
                                                                                                     
                                                                                                     

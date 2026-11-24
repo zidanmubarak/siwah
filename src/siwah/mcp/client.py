@@ -220,67 +220,79 @@ class StdioMcpClient:
         self.protocol_version = MCP_PROTOCOL_VERSION
         self._id = 0
         self._lock = asyncio.Lock()
+        self._connect_lock = asyncio.Lock()
+        self._closed = False
 
     async def _ensure(self) -> None:
-        if self.process is not None and self.process.returncode is None:
-            return
-        self.process = None
-        environment = dict(os.environ)
-        environment.update(self.env)
-        self.process = await asyncio.create_subprocess_exec(
-            *self.command,
-            cwd=self.cwd,
-            env=environment,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        result = await self.request(
-            "initialize",
-            {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": "siwah", "version": "0.4"},
-            },
-        )
-        version = result.get("protocolVersion")
-        if isinstance(version, str) and version:
-            self.protocol_version = version
-        await self.notify("notifications/initialized", {})
+        async with self._connect_lock:
+            if self.process is not None and self.process.returncode is None:
+                return
+            await self.close()
+            self._closed = False
+            environment = dict(os.environ)
+            environment.update(self.env)
+            process = await asyncio.create_subprocess_exec(
+                *self.command,
+                cwd=self.cwd,
+                env=environment,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            self.process = process
+            if self._closed:
+                await self.close()
+                raise McpError("stdio MCP client was closed during startup")
+            try:
+                result = await self.request(
+                    "initialize",
+                    {
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                        "capabilities": {},
+                        "clientInfo": {"name": "siwah", "version": "0.4"},
+                    },
+                )
+                version = result.get("protocolVersion")
+                if isinstance(version, str) and version:
+                    self.protocol_version = version
+                await self.notify("notifications/initialized", {})
+            except (Exception, asyncio.CancelledError):
+                await self.close()
+                raise
 
     async def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         async with self._lock:
-            if self.process is None or self.process.stdin is None or self.process.stdout is None:
+            process = self.process
+            if process is None or process.stdin is None or process.stdout is None:
                 raise McpError("stdio MCP process is not running")
             self._id += 1
             request_id = self._id
             payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
             try:
-                self.process.stdin.write((json.dumps(payload) + "\n").encode())
-                await asyncio.wait_for(self.process.stdin.drain(), timeout=self.timeout_s)
+                process.stdin.write((json.dumps(payload) + "\n").encode())
+                await asyncio.wait_for(process.stdin.drain(), timeout=self.timeout_s)
             except (BrokenPipeError, ConnectionError, OSError) as exc:
                 raise McpError("MCP server stdin closed") from exc
-            while True:
-                try:
-                    line = await asyncio.wait_for(
-                        self.process.stdout.readline(), timeout=self.timeout_s
-                    )
-                except TimeoutError as exc:
-                    raise McpError(
-                        f"MCP server did not answer {method} within {self.timeout_s:g}s"
-                    ) from exc
-                if not line:
-                    raise McpError("MCP server closed stdout")
-                try:
-                    message = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if message.get("id") != request_id:
-                    continue
-                if "error" in message:
-                    raise McpError(_error_text(message["error"]))
-                result = message.get("result", {})
-                return result if isinstance(result, dict) else {"result": result}
+            try:
+                async with asyncio.timeout(self.timeout_s):
+                    while True:
+                        line = await process.stdout.readline()
+                        if not line:
+                            raise McpError("MCP server closed stdout")
+                        try:
+                            message = json.loads(line)
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            continue
+                        if not isinstance(message, dict) or message.get("id") != request_id:
+                            continue
+                        if "error" in message:
+                            raise McpError(_error_text(message["error"]))
+                        result = message.get("result", {})
+                        return result if isinstance(result, dict) else {"result": result}
+            except TimeoutError as exc:
+                raise McpError(
+                    f"MCP server did not answer {method} within {self.timeout_s:g}s"
+                ) from exc
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:
@@ -306,19 +318,36 @@ class StdioMcpClient:
         return (await self.call_tool_result(name, arguments)).text
 
     async def close(self) -> None:
+        self._closed = True
         process = self.process
         self.process = None
         if process is None:
             return
-        with contextlib.suppress(OSError):
-            process.terminate()
+        if process.stdin is not None:
+            process.stdin.close()
+        if process.returncode is None:
+            with contextlib.suppress(OSError):
+                process.terminate()
+
+        # Drain stdout as well as waiting for exit, so pipe transports close
+        # before the event loop shuts down (especially on Windows).
+        async def drain() -> None:
+            async with self._lock:
+                if process.stdout is not None:
+                    while await process.stdout.read(65536):
+                        pass
+                await process.wait()
+                if process.stdin is not None:
+                    with contextlib.suppress(OSError):
+                        await process.stdin.wait_closed()
+
         try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except (TimeoutError, OSError, ProcessLookupError):
-            with contextlib.suppress(OSError, ProcessLookupError):
+            await asyncio.wait_for(drain(), timeout=5)
+        except TimeoutError:
+            with contextlib.suppress(OSError):
                 process.kill()
-            with contextlib.suppress(TimeoutError, OSError, ProcessLookupError):
-                await asyncio.wait_for(process.wait(), timeout=2)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(drain(), timeout=2)
 
 
 class HttpMcpClient:

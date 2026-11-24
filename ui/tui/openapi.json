@@ -98,6 +98,98 @@
         "title": "Capabilities",
         "type": "object"
       },
+      "ChangeFile": {
+        "properties": {
+          "old_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Path"
+          },
+          "patch": {
+            "title": "Patch",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "status",
+          "patch"
+        ],
+        "title": "ChangeFile",
+        "type": "object"
+      },
+      "ChangesResponse": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "base": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ChangeFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope",
+          "files",
+          "available"
+        ],
+        "title": "ChangesResponse",
+        "type": "object"
+      },
       "CheckpointCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -465,6 +557,14 @@
             "title": "Events",
             "type": "array"
           },
+          "observations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Observations",
+            "type": "array"
+          },
           "paused": {
             "default": false,
             "title": "Paused",
@@ -805,6 +905,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "delivery": {
+            "anyOf": [
+              {
+                "const": "unapplied",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
+          },
           "diffs": {
             "items": {
               "$ref": "#/components/schemas/MessageDiff"
@@ -858,6 +970,13 @@
               "type": "boolean"
             },
             "title": "Tool Edited",
+            "type": "object"
+          },
+          "tool_outcomes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ToolCallOutcome"
+            },
+            "title": "Tool Outcomes",
             "type": "object"
           },
           "tool_outputs": {
@@ -1156,6 +1275,27 @@
         "title": "PlanResponse",
         "type": "object"
       },
+      "PromptQueue": {
+        "properties": {
+          "event_seq": {
+            "title": "Event Seq",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QueuedPromptSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "event_seq",
+          "items"
+        ],
+        "title": "PromptQueue",
+        "type": "object"
+      },
       "ProviderModels": {
         "properties": {
           "error": {
@@ -1185,6 +1325,66 @@
           "provider"
         ],
         "title": "ProviderModels",
+        "type": "object"
+      },
+      "QueuedPromptResponse": {
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/MessageAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "content",
+          "attachments"
+        ],
+        "title": "QueuedPromptResponse",
+        "type": "object"
+      },
+      "QueuedPromptSummary": {
+        "properties": {
+          "attachment_count": {
+            "title": "Attachment Count",
+            "type": "integer"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "preview": {
+            "title": "Preview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "preview",
+          "attachment_count"
+        ],
+        "title": "QueuedPromptSummary",
         "type": "object"
       },
       "QuickNoteRequest": {
@@ -1266,6 +1466,27 @@
         "title": "RewindResponse",
         "type": "object"
       },
+      "RunTimingResponse": {
+        "properties": {
+          "durations": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Durations",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "durations"
+        ],
+        "title": "RunTimingResponse",
+        "type": "object"
+      },
       "SendMessageRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1280,6 +1501,17 @@
             "default": "",
             "title": "Content",
             "type": "string"
+          },
+          "steer_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steer Run Id"
           }
         },
         "title": "SendMessageRequest",
@@ -1290,6 +1522,17 @@
           "event_id": {
             "title": "Event Id",
             "type": "integer"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
           },
           "run_id": {
             "title": "Run Id",
@@ -1373,6 +1616,16 @@
               }
             ],
             "title": "Model"
+          },
+          "prompt_queue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromptQueue"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "title": "Status",
@@ -1577,6 +1830,47 @@
           "name"
         ],
         "title": "ToolCall",
+        "type": "object"
+      },
+      "ToolCallOutcome": {
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "cancelled",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ToolCallOutcome",
         "type": "object"
       },
       "ToolOutputResponse": {
@@ -3541,6 +3835,122 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/changes": {
+      "get": {
+        "operationId": "changes_v1_sessions__session_id__changes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "turn",
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "checkpoint_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Checkpoint Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_checkpoint_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Checkpoint Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "File Path"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Changes",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/checkpoints": {
       "get": {
         "operationId": "checkpoints_v1_sessions__session_id__checkpoints_get",
@@ -3718,6 +4128,77 @@
           }
         },
         "summary": "Compact",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/corrections/{message_id}": {
+      "delete": {
+        "operationId": "resolve_correction_v1_sessions__session_id__corrections__message_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Resolve Correction V1 Sessions  Session Id  Corrections  Message Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Correction",
         "tags": [
           "siwah"
         ]
@@ -4134,6 +4615,73 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/queue/{prompt_id}": {
+      "delete": {
+        "operationId": "remove_queued_prompt_v1_sessions__session_id__queue__prompt_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "prompt_id",
+            "required": true,
+            "schema": {
+              "title": "Prompt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedPromptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Queued Prompt",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/rewind": {
       "post": {
         "operationId": "rewind_v1_sessions__session_id__rewind_post",
@@ -4265,6 +4813,72 @@
           }
         },
         "summary": "Shell",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/timing": {
+      "get": {
+        "operationId": "run_timing_v1_sessions__session_id__timing_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RunTimingResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Run Timing V1 Sessions  Session Id  Timing Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Timing",
         "tags": [
           "siwah"
         ]

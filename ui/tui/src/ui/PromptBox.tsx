@@ -6,12 +6,15 @@ import { fileURLToPath } from "node:url"
 import type { TextareaRenderable } from "@opentui/core"
 import { TextAttributes } from "@opentui/core"
 import { useKeyboard, usePaste } from "@opentui/solid"
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
+import type { MessageAttachment } from "../api/client"
 import type { PromptImage } from "../state"
 import { useDimensions, useStore, useTheme } from "./context"
 
 export type PromptHandle = {
   setText: (value: string) => void
+  restore: (value: string, attachments: MessageAttachment[]) => void
+  empty: () => boolean
   clear: () => void
   focus: () => void
   blur: () => void
@@ -54,6 +57,25 @@ export function PromptBox(props: {
     ownershipRevision += 1
     if (!available()) area?.blur()
   })
+  const draftDetails = new Map<string, { cursor: number; images: PromptImage[] }>()
+  createEffect(
+    on(store.draftTarget, (target, previous) => {
+      if (!previous) return
+      if (target.carry) {
+        draftDetails.delete(previous.id)
+        return
+      }
+      ownershipRevision += 1
+      revision += 1
+      draftDetails.set(previous.id, { cursor: area?.cursorOffset ?? 0, images: images() })
+      const draft = draftDetails.get(target.id)
+      const next = store.promptText()
+      area?.setText(next)
+      setValue(next)
+      setImages(draft?.images ?? [])
+      if (area) area.cursorOffset = draft?.cursor ?? 0
+    }),
+  )
   onCleanup(() => {
     disposed = true
   })
@@ -163,6 +185,20 @@ export function PromptBox(props: {
       area?.gotoBufferEnd()
       if (available()) area?.focus()
     },
+    restore: (text, attachments) => {
+      const restored = attachments.map((attachment, index) => ({
+        ...attachment,
+        id: crypto.randomUUID(),
+        token: `[Image ${index + 1}]`,
+      }))
+      setImages(restored)
+      const tokens = restored
+        .map((image) => image.token)
+        .filter((token) => !text.includes(token))
+        .join(" ")
+      handle.setText([text, tokens].filter(Boolean).join("\n"))
+    },
+    empty: () => !(area?.plainText ?? value()).trim() && images().length === 0,
     clear: () => handle.setText(""),
     focus: () => {
       if (available()) area?.focus()
@@ -190,11 +226,14 @@ export function PromptBox(props: {
       return
     }
     const submittedRevision = revision
+    const submittedTarget = store.draftTarget().id
     const submittedImages = images()
     submitting = true
     try {
       const accepted = await props.onSubmit(text, submittedImages)
       if (disposed || accepted === false) return
+      const target = store.draftTarget()
+      if (target.id !== submittedTarget && !(submittedTarget === "" && target.carry)) return
       // Clear only the submitted revision, never newer typing or attachments.
       if (
         revision === submittedRevision ||

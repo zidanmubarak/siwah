@@ -10,7 +10,7 @@ import { TuiStore, type UiMessage } from "../src/state"
 import { baseTheme, resolveTheme } from "../src/theme"
 import { App } from "../src/ui/App"
 import { setActiveStore, setActiveTheme } from "../src/ui/context"
-import { Logo, siwahLine, siwahMark } from "../src/ui/Logo"
+import { Logo } from "../src/ui/Logo"
 import { MessageView } from "../src/ui/MessageView"
 import { ToolCard } from "../src/ui/ToolCard"
 
@@ -54,18 +54,9 @@ const answer = (overrides: Partial<UiMessage> = {}): UiMessage => ({
   ...overrides,
 })
 
-test("supplied logo data and material palette are exact", async () => {
+test("the Hornbill preserves its silhouette and wordmark in monochrome", async () => {
   readyStore()
-  expect(siwahMark).toEqual([
-    ["           ", "                ▄▄▄▄▄▄▄▄▄██▀"],
-    ["        ███", "▄▄▄▄▄▄█████████████████▀▀"],
-    ["        █▀█", "██████████████████▀▀▀"],
-    ["        ███", "████▀▀▀▀▀▀▀▀▀▀"],
-    ["     ██████", "   ▄▀▀▀ ▀ █   █  ▀▀▄ █"],
-    ["     ████  ", "    ▀▀▄ █ █▄▀▄█ ▄▀▀█ █▀▀▄"],
-    ["   ████████", "   ▀▀▀  ▀ ▀   ▀  ▀▀▀ ▀  ▀"],
-  ])
-  expect(siwahLine).toBe("◆━━━━━━━━━━━━━━━━◥")
+  setActiveTheme(resolveTheme("mono"))
   const theme = baseTheme("siwah-dark")
   expect([theme.background, theme.text, theme.accent, theme.accentAlt]).toEqual([
     "#15151b",
@@ -77,10 +68,14 @@ test("supplied logo data and material palette are exact", async () => {
   try {
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
-    for (const [, rest] of siwahMark) {
-      const visible = rest.trimEnd()
-      if (visible) expect(frame).toContain(visible)
-    }
+    expect(
+      frame
+        .split("\n")
+        .slice(0, 5)
+        .map((row) => row.slice(0, 15).trimEnd()),
+    ).toEqual(["      ▄███▄▄▄", "     ██▀██████▄", "   ▄█████    ▀▀", " ▄██████▀", "██▀▀ ██▄"])
+    expect(frame).toContain("siwah")
+    expect(frame).toContain("a coding agent that learns with you")
   } finally {
     setup.renderer.destroy()
   }

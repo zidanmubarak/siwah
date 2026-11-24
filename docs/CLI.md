@@ -18,6 +18,44 @@ siwah --allow-all                      # TUI with yolo permissions
 | `--ui` | `tui`, `plain` | Select the interface when no subcommand is given. `plain` without a subcommand only prints a hint. |
 | `--allow-all`, `--bypass` | flag | Start the TUI with auto-approved tools, equivalent to `/permissions yolo`. |
 
+### Steer an active task
+
+Use `/steer <correction>` to give the current task a new instruction. The
+current tool or parallel read group can finish. Siwah skips remaining calls
+from the previous instruction and shows the correction when the next model
+step starts. Use `/queue <prompt>` for a separate task that starts after the
+current one.
+
+Open `/pending` to see the current session's queued prompts. Select a prompt
+to cancel it or return it to an empty editor with its attachments. The
+daemon keeps this queue in memory across TUI reconnects and tab switches.
+Click the queue count in the activity bar to open the same panel. A busy
+workspace temporarily blocks the first item and preserves queue order.
+The daemon retries when the workspace is available and stops taking queued
+work when shutdown begins.
+If a task ends before a correction is applied, the transcript marks it as
+unapplied. Select the correction in `/pending` to edit it or send it as a
+separate follow-up.
+
+### Find text in the current session
+
+Use `/find` to search the current transcript, or `/find <text>` to prefill
+the search. Results show excerpts from messages, file changes, and tool
+output. Use the arrow keys to move between results and Enter to jump to
+the selected message.
+
+Use `/timing` to inspect elapsed model, permission, tool, verification,
+checkpoint, hook and other time for the latest daemon task in the session.
+
+### Review changes in the TUI
+
+Use `/changes` for the latest turn, `/changes <initial-checkpoint-id>` for an
+earlier turn, or `/changes workspace` to review Git changes separately. Search
+or use the arrow keys to select a file, press Enter to open its patch, then
+press Esc to return to the file list. Untracked workspace files are listed by
+name. Turn review uses recorded checkpoints and is available when checkpoints
+are enabled.
+
 ## Command index
 
 | Command | Purpose |

@@ -46,7 +46,7 @@ export type ToolView = {
   id: string
   name: string
   summary: string
-  status: "running" | "ok" | "error" | "cancelled"
+  status: "running" | "ok" | "error" | "cancelled" | "skipped"
   output: string
   error: string | null
   durationMs: number | null
@@ -71,6 +71,7 @@ export type UiMessage = {
   diffs: DiffBlock[]
   reasoningOpen: boolean
   images?: PromptImage[]
+  unapplied?: boolean
 }
 
 export type TodoItem = {
@@ -105,10 +106,14 @@ export type DialogState =
   | { type: "sessions" }
   | { type: "help" }
   | { type: "cost" }
+  | { type: "timing" }
+  | { type: "pending" }
+  | { type: "find"; query: string }
   | { type: "connect" }
   | { type: "doctor" }
   | { type: "evolution" }
   | { type: "checkpoints" }
+  | { type: "changes"; scope: "turn" | "workspace"; checkpointId?: string }
   | { type: "skills" }
   | { type: "skill"; name: string }
   | { type: "memory" }
@@ -146,6 +151,8 @@ export type ProviderRetry = {
 export type QueuedPrompt = {
   id: string
   text: string
+  attachmentCount?: number
+  blockedReason?: string
 }
 
 type Connection = "offline" | "connecting" | "online" | "reconnecting"
@@ -227,7 +234,9 @@ export class TuiStore {
   readonly toasts = callableSignal<Toast[]>([])
   readonly runNotice = callableSignal<RunNotice | null>(null)
   readonly providerRetry = callableSignal<ProviderRetry | null>(null)
+  readonly activeRunId = callableSignal<string | null>(null)
   readonly queuedPrompts = callableSignal<QueuedPrompt[]>([])
+  private queueEventSeq = -1
   readonly models = callableSignal<ModelCatalog | null>(null)
   readonly meta = callableSignal<Meta | null>(null)
   readonly updateStatus = callableSignal<UpdateStatus | null>(null)
@@ -248,6 +257,26 @@ export class TuiStore {
   readonly runtimeError = callableSignal<string | null>(null)
   readonly files = callableSignal<string[]>([])
   readonly promptText = callableSignal("")
+  readonly draftTarget = callableSignal({ id: "", carry: false })
+  readonly runPhase = callableSignal<{ label: string; since: number } | null>(null)
+  private readonly drafts = new Map<string, string>()
+
+  private selectDraft(id: string, carry = false): void {
+    const previous = this.draftTarget().id
+    if (previous === id) return
+    if (!carry) {
+      this.drafts.set(previous, this.promptText())
+      this.promptText(this.drafts.get(id) ?? "")
+    } else {
+      this.drafts.delete(previous)
+    }
+    this.draftTarget({ id, carry })
+  }
+
+  private setRunPhase(label: string | null): void {
+    if (this.runPhase()?.label === label) return
+    this.runPhase(label ? { label, since: Date.now() } : null)
+  }
   readonly promptHeight = callableSignal(1)
   readonly history = callableSignal<string[]>([])
   readonly checkpoints = callableSignal<Checkpoint[]>([])
@@ -382,6 +411,7 @@ export class TuiStore {
     this.seenEventIds.clear()
     this.session(null)
     this.running(false)
+    this.setRunPhase(null)
     this.permission(null)
     this.dialog(null)
     this.messages([])
@@ -397,6 +427,8 @@ export class TuiStore {
     this.providerRetry(null)
     this.pendingRunError = null
     this.queuedPrompts([])
+    this.queueEventSeq = -1
+    this.activeRunId(null)
     this.promptHistory.length = 0
     this.historyIndex = 0
     this.history([])
@@ -406,7 +438,6 @@ export class TuiStore {
     this.customCommands([])
     this.pendingMode("build")
     this.pendingModel(null)
-    // The composer belongs to the user, not a response or stream being replaced.
     return this.sessionEpoch
   }
 
@@ -451,7 +482,7 @@ export class TuiStore {
       if (!current()) return
       this.mergeHistory(
         messages.messages
-          .filter((message) => message.role === "user")
+          .filter((message) => message.role === "user" && message.delivery !== "unapplied")
           .map((message) => message.content ?? ""),
       )
     } catch {
@@ -916,6 +947,7 @@ export class TuiStore {
   async createSession(
     cwd = process.env.SIWAH_WORKSPACE ?? process.cwd(),
     model?: string,
+    carryDraft = false,
   ): Promise<Session | null> {
     if (!this.api) return null
     const selectedModel = model ?? this.pendingModel() ?? this.session()?.model ?? undefined
@@ -939,6 +971,7 @@ export class TuiStore {
         }
       }
       if (epoch !== this.sessionEpoch) return null
+      this.selectDraft(active.id, carryDraft)
       this.session(active)
       this.sessionLoading = false
       this.running(active.status === "running")
@@ -985,6 +1018,7 @@ export class TuiStore {
       return
     }
     this.beginSessionChange()
+    this.selectDraft("")
     this.sessionLoading = false
     this.loadHistory()
     void this.loadFiles()
@@ -997,6 +1031,7 @@ export class TuiStore {
 
   async openSession(sessionId: string, options: { after?: number } = {}): Promise<void> {
     if (!this.api) return
+    const sameSession = this.session()?.id === sessionId
     const epoch = this.beginSessionChange()
     try {
       const [session, messageList, usage] = await Promise.all([
@@ -1007,12 +1042,30 @@ export class TuiStore {
       if (epoch !== this.sessionEpoch) return
       const active = session
       this.hiddenSessions((current) => current.filter((item) => item !== sessionId))
+      this.selectDraft(active.id, sameSession)
       this.session(active)
       this.sessionLoading = false
       this.running(active.status === "running")
       this.pendingMode((active.mode as "build" | "plan") ?? "build")
       this.pendingModel(null)
-      this.messages(hydrateMessages(messageList.messages))
+      this.activeRunId(
+        active.status === "running" ? text(active.metadata?.active_run_id) || null : null,
+      )
+      const phase = active.metadata?.run_phase
+      if (
+        active.status === "running" &&
+        phase &&
+        typeof phase === "object" &&
+        !Array.isArray(phase)
+      ) {
+        const label = "label" in phase ? text(phase.label) : ""
+        const since = "since" in phase ? Date.parse(text(phase.since)) : NaN
+        if (label && Number.isFinite(since)) this.runPhase({ label, since })
+      }
+      this.messages(hydrateMessages(messageList.messages, active.status === "running"))
+      if (active.prompt_queue) {
+        this.applyQueue(active.prompt_queue.event_seq, active.prompt_queue.items)
+      }
       this.scrollTick((value) => value + 1)
       this.usage(usage)
       this.contextState({
@@ -1027,7 +1080,7 @@ export class TuiStore {
       this.loadHistory()
       this.mergeHistory(
         messageList.messages
-          .filter((message) => message.role === "user")
+          .filter((message) => message.role === "user" && message.delivery !== "unapplied")
           .map((message) => message.content ?? ""),
       )
       this.lastSeq = options.after ?? session.last_event_seq ?? 0
@@ -1058,7 +1111,7 @@ export class TuiStore {
     this.submitting = true
     try {
       if (!this.session()) {
-        const created = await this.createSession()
+        const created = await this.createSession(undefined, undefined, true)
         if (!created) return false
       }
       const session = this.session()
@@ -1111,15 +1164,17 @@ export class TuiStore {
           images.map(({ mime, data, name }) => ({ mime, data, name })),
         )
         if (!current()) return false
-        if (response.status === "queued") {
+        if (response.status === "queued" && this.queueEventSeq >= 0) {
+          this.messages((current) => current.filter((message) => message.id !== localId))
+        } else if (response.status === "queued") {
           // The server owns the FIFO queue. Keep the local echo and show a
           // compact count in the activity line until the next run starts.
           this.queuedPrompts((current) => [
             ...current,
             { id: localId, text: options.display ?? (prompt || "Image message") },
           ])
-        } else if (queued) {
-          this.running(true)
+        } else if (response.status === "running" && this.running() && !this.activeRunId()) {
+          this.activeRunId(response.run_id)
         }
         if (prompt) this.pushHistory(options.display ?? prompt)
         return true
@@ -1135,6 +1190,26 @@ export class TuiStore {
       }
     } finally {
       this.submitting = false
+    }
+  }
+
+  async steerPrompt(input: string): Promise<boolean> {
+    const session = this.session()
+    const runId = this.activeRunId()
+    const content = input.trim()
+    if (!session || !this.api || !this.running() || !runId || !content) {
+      this.notify("Use /steer followed by a correction during an active task.", "warning")
+      return false
+    }
+    const current = this.scope()
+    try {
+      await this.api.steer(session.id, runId, content)
+      if (!current()) return false
+      this.notify("Correction sent to the active task", "info")
+      return true
+    } catch (error) {
+      if (current()) this.notify(errorSuggestion(error), "warning")
+      return false
     }
   }
 
@@ -1267,6 +1342,58 @@ export class TuiStore {
       this.messages((current) => current.filter((message) => !ids.has(message.id)))
     }
     this.queuedPrompts([])
+  }
+
+  private applyQueue(seq: number, items: unknown): void {
+    if (seq <= this.queueEventSeq || !Array.isArray(items)) return
+    if (this.queueEventSeq === -1) this.clearQueuedPrompts()
+    this.queueEventSeq = seq
+    this.queuedPrompts(
+      items.flatMap((entry) => {
+        const item = record(entry)
+        const id = text(item.id)
+        if (!id) return []
+        const blockedReason = text(item.blocked_reason)
+        return [
+          {
+            id,
+            text: text(item.preview),
+            attachmentCount: number(item.attachment_count, 0),
+            ...(blockedReason ? { blockedReason } : {}),
+          },
+        ]
+      }),
+    )
+  }
+
+  async removeQueuedPrompt(id: string) {
+    const session = this.session()
+    if (!session || !this.api) return null
+    const current = this.scope()
+    try {
+      const item = await this.api.removeQueuedPrompt(session.id, id)
+      if (!current()) return null
+      this.queuedPrompts((items) => items.filter((entry) => entry.id !== id))
+      return item
+    } catch (error) {
+      if (current()) this.notify(errorSuggestion(error), "warning")
+      return null
+    }
+  }
+
+  async resolveCorrection(id: string): Promise<boolean> {
+    const session = this.session()
+    if (!session || !this.api) return false
+    const current = this.scope()
+    try {
+      await this.api.resolveCorrection(session.id, id)
+      if (!current()) return false
+      this.messages((items) => items.filter((message) => message.id !== id))
+      return true
+    } catch (error) {
+      if (current()) this.notify(errorSuggestion(error), "warning")
+      return false
+    }
   }
 
   finishStreaming(): void {
@@ -1485,6 +1612,27 @@ export class TuiStore {
     }
   }
 
+  async latestTiming() {
+    const session = this.session()
+    if (!session || !this.api) return null
+    const current = this.scope()
+    const timing = await this.api.timing(session.id)
+    return current() ? timing : null
+  }
+
+  async reviewChanges(
+    scope: "turn" | "workspace",
+    checkpointId?: string,
+    filePath?: string,
+    end?: string,
+  ) {
+    const session = this.session()
+    if (!this.api || !session) return null
+    const current = this.scope()
+    const response = await this.api.changes(session.id, scope, checkpointId, filePath, end)
+    return current() ? response : null
+  }
+
   openDialog(dialog: DialogState): void {
     this.dialog(dialog)
   }
@@ -1657,10 +1805,59 @@ export class TuiStore {
     }
     const data = record(event.data)
     switch (event.type) {
+      case "queue.changed": {
+        this.applyQueue(event.seq, data.items)
+        break
+      }
+      case "steering.applied":
+      case "steering.dropped": {
+        const id = text(data.message_id)
+        if (!id || this.messages().some((message) => message.id === id)) break
+        this.messages((messages) => [
+          ...messages,
+          {
+            id,
+            role: "user",
+            content: text(data.content),
+            reasoning: "",
+            streaming: false,
+            createdAt: event.ts,
+            toolCalls: [],
+            diffs: [],
+            reasoningOpen: false,
+            unapplied: event.type === "steering.dropped",
+          },
+        ])
+        this.scrollTick((tick) => tick + 1)
+        break
+      }
       case "message.start": {
         this.providerRetry(null)
-        if (text(data.role) === "user" && this.queuedPrompts().length > 0) {
-          this.queuedPrompts((current) => current.slice(1))
+        if (text(data.role) === "user") {
+          const id = text(data.message_id)
+          if (
+            id &&
+            data.queued_prompt_id &&
+            !this.messages().some((message) => message.id === id)
+          ) {
+            this.messages((current) => [
+              ...current,
+              {
+                id,
+                role: "user",
+                content: text(data.content) || "Image message",
+                reasoning: "",
+                streaming: false,
+                createdAt: event.ts,
+                toolCalls: [],
+                diffs: [],
+                reasoningOpen: false,
+              },
+            ])
+            this.scrollTick((tick) => tick + 1)
+          } else if (this.queueEventSeq === -1 && this.queuedPrompts().length > 0) {
+            this.queuedPrompts((current) => current.slice(1))
+          }
         }
         if (text(data.role) !== "assistant" || !text(data.message_id)) break
         const id = text(data.message_id)
@@ -1745,14 +1942,42 @@ export class TuiStore {
       }
       case "tool.end": {
         const id = text(data.tool_call_id)
-        this.updateTool(id, (tool) => ({
+        const finish = (tool: ToolView): ToolView => ({
           ...tool,
-          status: text(data.status) === "ok" ? "ok" : "error",
+          status:
+            data.status === "ok" || data.status === "skipped" || data.status === "cancelled"
+              ? data.status
+              : "error",
           output: text(data.output),
           error: data.error ? text(data.error) : null,
           durationMs: number(data.duration_ms),
           edited: data.edited === true,
-        }))
+        })
+        const messageId = text(data.message_id)
+        if (data.status === "skipped" && id && messageId) {
+          this.updateMessage(messageId, (message) => {
+            const known = message.toolCalls.some((tool) => tool.id === id)
+            return {
+              ...message,
+              toolCalls: known
+                ? message.toolCalls.map((tool) => (tool.id === id ? finish(tool) : tool))
+                : [
+                    ...message.toolCalls,
+                    finish({
+                      id,
+                      name: text(data.name, "tool"),
+                      summary: text(data.arguments_summary),
+                      status: "skipped",
+                      output: "",
+                      error: null,
+                      durationMs: null,
+                    }),
+                  ],
+            }
+          })
+        } else {
+          this.updateTool(id, finish)
+        }
         break
       }
       case "diff": {
@@ -1831,18 +2056,23 @@ export class TuiStore {
       }
       case "status": {
         const state = text(data.state)
+        if (data.phase === "finishing_hooks") this.setRunPhase("finishing hooks")
         const activeId = this.session()?.id
         if (state === "running" || state === "waiting_permission") {
+          if (event.turn_id) this.activeRunId(event.turn_id)
           this.running(true)
           if (activeId) this.setSessionStatus(activeId, "running")
         }
         if (state === "idle") {
+          this.setRunPhase(null)
           this.running(false)
           if (activeId) this.setSessionStatus(activeId, "idle")
         }
         break
       }
       case "run.end": {
+        this.activeRunId(null)
+        this.setRunPhase(null)
         const reason = text(data.reason, "completed")
         this.providerRetry(null)
         this.running(false)
@@ -1915,10 +2145,17 @@ export class TuiStore {
       }
       case "verifier": {
         const state = text(data.status)
-        if (state === "failed") this.notify("Verifier failed; requesting a repair", "warning")
-        if (state === "retry") this.notify("Verifier still failing; repairing", "warning")
-        if (state === "accepted_explanation")
-          this.notify("Verifier failure accepted with explanation", "info")
+        const verdict = text(data.verdict)
+        if (state === "baseline") this.setRunPhase("checking baseline")
+        else if (state === "running") this.setRunPhase("running checks")
+        else if (state === "retry") this.setRunPhase("repairing failed checks")
+        else {
+          this.setRunPhase(null)
+          if (verdict === "pre_existing")
+            this.notify("Checks still have pre-existing failures", "warning")
+          else if (verdict === "unverified") this.notify("Some checks could not finish", "warning")
+          else if (state === "failed") this.notify("Verification failed", "warning")
+        }
         break
       }
       case "budget.extended": {
@@ -1984,9 +2221,13 @@ export class TuiStore {
   }
 }
 
-export function hydrateMessages(records: ChatMessage[]): UiMessage[] {
+export function hydrateMessages(records: ChatMessage[], running = false): UiMessage[] {
   const messages: UiMessage[] = []
   const byToolId = new Map<string, ToolView>()
+  const knownOutcomes = new Set<string>()
+  const activeId = running
+    ? records.filter((record) => record.role === "assistant").at(-1)?.id
+    : null
   for (const record of records) {
     if (record.role === "user") {
       messages.push({
@@ -1999,6 +2240,7 @@ export function hydrateMessages(records: ChatMessage[]): UiMessage[] {
         toolCalls: [],
         diffs: [],
         reasoningOpen: false,
+        unapplied: record.delivery === "unapplied",
         images: (record.attachments ?? []).map((item, index) => ({
           ...item,
           id: `${record.id}_img_${index}`,
@@ -2009,14 +2251,19 @@ export function hydrateMessages(records: ChatMessage[]): UiMessage[] {
     if (record.role === "assistant") {
       const tools: ToolView[] = (record.tool_calls ?? []).flatMap((call) => {
         if (byToolId.has(call.id)) return []
+        const outcome = record.tool_outcomes?.[call.id]
+        const fullOutput = record.tool_outputs?.[call.id]
+        if (outcome) knownOutcomes.add(call.id)
         const tool: ToolView = {
           id: call.id,
           name: call.name,
           summary: JSON.stringify(call.arguments),
-          status: "ok",
-          output: record.tool_outputs?.[call.id] ?? "",
-          error: null,
-          durationMs: null,
+          status:
+            outcome?.status ??
+            (fullOutput !== undefined ? "ok" : record.id === activeId ? "running" : "cancelled"),
+          output: fullOutput ?? "",
+          error: outcome?.error ?? null,
+          durationMs: outcome?.duration_ms ?? null,
           edited: record.tool_edited?.[call.id] ?? false,
         }
         byToolId.set(tool.id, tool)
@@ -2036,12 +2283,10 @@ export function hydrateMessages(records: ChatMessage[]): UiMessage[] {
       continue
     }
     if (record.role === "tool" && record.tool_call_id) {
-      for (const message of messages) {
-        const tool = message.toolCalls.find((item) => item.id === record.tool_call_id)
-        if (tool) {
-          tool.output = record.content ?? ""
-          tool.status = "ok"
-        }
+      const tool = byToolId.get(record.tool_call_id)
+      if (tool) {
+        if (!tool.output) tool.output = record.content ?? ""
+        if (!knownOutcomes.has(tool.id)) tool.status = "ok"
       }
     }
   }

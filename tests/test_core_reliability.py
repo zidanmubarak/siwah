@@ -472,6 +472,33 @@ async def test_child_allowance_stops_before_tools_and_next_request(config, store
     assert result.error == "allowance_exceeded"
     child_messages = store.get_messages(result.session_id)
     assert child_messages[-1].role == "tool"  # the skipped call still has a protocol reply
+    calls = store.get_tool_calls(result.session_id)
+    assert [call["status"] for call in calls] == ["skipped"]
+    await loop.close_jobs()
+
+
+@pytest.mark.asyncio
+async def test_pre_existing_failure_requires_a_candid_answer(config, store, tmp_path):
+    cfg = _verify_config(config, mode="yolo")
+    repo = _verifier_repo(tmp_path)
+    adapter = ScriptedAdapter(
+        [
+            outcome(tool_calls=[tool_call("write_file", {"path": "README.md", "content": "note"})]),
+            outcome(text="All tests pass. Done."),
+            outcome(text="The verifier still fails on the pre-existing OLD_FAILURE."),
+        ],
+        cfg.providers["mock"],
+    )
+    loop = make_loop(cfg, store, adapter)
+    session = store.create_session(cwd=str(repo), model="mock/model-a")
+    result = await loop.run(session, "write", emit=_emit)
+    assert result.error is None
+    assert result.text == "The verifier still fails on the pre-existing OLD_FAILURE."
+    messages = store.get_messages(session.id)
+    assert any(
+        message.role == "system" and "failed before your edits" in message.content
+        for message in messages
+    )
     await loop.close_jobs()
 
 

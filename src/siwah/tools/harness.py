@@ -15,7 +15,7 @@ from ..harness.skills import (
     update_skill,
 )
 from ..permissions.policy import PermissionRequest
-from .base import Tool, ToolContext, ToolResult, object_schema, string_property
+from .base import Tool, ToolContext, ToolResult, integer_property, object_schema, string_property
 
 
 class MemoryWriteTool(Tool):
@@ -71,6 +71,38 @@ class MemoryWriteTool(Tool):
             f"Wrote {target} memory to {path}. It is loaded in the next session.",
             data={"path": str(path), "target": target},
         )
+
+
+class SkillListTool(Tool):
+    name = "skill_list"
+    description = "Search reusable skills by name and description. Use skill_view for the body."
+    parameters = object_schema(
+        {
+            "query": string_property("Optional search terms.", ""),
+            "offset": integer_property("Number of matching skills to skip.", 0),
+            "limit": integer_property("Maximum skills to show.", 20),
+        }
+    )
+
+    async def run(self, context: ToolContext, **arguments: Any) -> ToolResult:
+        terms = str(arguments.get("query", "")).casefold().split()
+        offset = max(0, int(arguments.get("offset", 0)))
+        limit = min(50, max(1, int(arguments.get("limit", 20))))
+        skills = [
+            skill
+            for skill in list_skills(context.workspace)
+            if all(term in f"{skill.name} {skill.description}".casefold() for term in terms)
+        ]
+        selected = skills[offset : offset + limit]
+        text = (
+            "\n".join(
+                f"- {skill.name}: {redact_secrets(skill.description)[:240]}" for skill in selected
+            )
+            or "(no matching skills)"
+        )
+        if offset + limit < len(skills):
+            text += f"\nMore matches: use offset={offset + limit}."
+        return ToolResult.success(text)
 
 
 class SkillManageTool(Tool):
@@ -216,12 +248,14 @@ class RecallTool(Tool):
     name = "recall"
     description = (
         "Search earlier session messages by keywords. Returns session ids, titles, "
-        "workspace paths, and short snippets."
+        "message IDs, and short snippets. Use message_id to read nearby messages."
     )
     kind = "read"
     parameters = object_schema(
         {
-            "query": string_property("Distinctive words to search for."),
+            "query": string_property("Distinctive words to search for in this project."),
+            "message_id": string_property("Open nearby messages around a search result."),
+            "radius": integer_property("Number of adjacent message positions on either side.", 2),
             "limit": {
                 "type": "integer",
                 "default": 10,
@@ -231,15 +265,36 @@ class RecallTool(Tool):
             "include_current": {
                 "type": "boolean",
                 "default": False,
-                "description": "Include the current session in results.",
+                "description": "Include recent messages from the current session as well as compacted messages.",
             },
         },
-        ["query"],
     )
 
     async def run(self, context: ToolContext, **arguments: Any) -> ToolResult:
         if context.store is None:
             return ToolResult.failure("Session storage is unavailable")
+        current = context.store.get_session(context.session_id)
+        cwd = current.cwd if current else str(context.workspace)
+        cutoff = (current.metadata or {}).get("context_compacted_through", 0) if current else 0
+        through = cutoff if isinstance(cutoff, int) else 0
+        include_current = bool(arguments.get("include_current", False))
+        message_id = arguments.get("message_id")
+        if message_id:
+            rows = context.store.recall_window(
+                str(message_id),
+                cwd=cwd,
+                radius=min(5, max(0, int(arguments.get("radius", 2)))),
+                current_id=context.session_id,
+                through=None if include_current else through,
+            )
+            contents = [
+                f"[{row['message_id']}] {row['role']}: "
+                + redact_secrets(str(row["content"] or ""))[:1500]
+                for row in rows
+            ]
+            return ToolResult.success(
+                "\n\n".join(contents) or "(no matching messages in this project)"
+            )
         try:
             query = _fts_query(str(arguments.get("query", "")))
         except ValueError as exc:
@@ -248,7 +303,9 @@ class RecallTool(Tool):
         rows = context.store.recall_messages(
             query,
             limit,
-            exclude_session_id=None if arguments.get("include_current") else context.session_id,
+            exclude_session_id=None if include_current else context.session_id,
+            compacted_through=through,
+            cwd=cwd,
         )
         if not rows:
             return ToolResult.success("(no matching sessions)")
@@ -258,7 +315,7 @@ class RecallTool(Tool):
             snippet = snippet[:400]
             title = row.get("title") or row.get("session_id")
             lines.append(
-                f"[{row.get('session_id')}] {title}\n"
+                f"[{row.get('session_id')}] {title} (message_id: {row.get('message_id')})\n"
                 f"  {row.get('cwd')} · {row.get('updated_at')}\n"
                 f"  {snippet}"
             )

@@ -387,3 +387,31 @@ def test_harness_upgrade_preserves_user_edits(tmp_path: Path):
     path.write_text("my own prompt\n", encoding="utf-8")
     _upgrade_default(path, DEFAULT_SYSTEM_PROMPT, LEGACY_SYSTEM_PROMPTS)
     assert path.read_text(encoding="utf-8") == "my own prompt\n"
+
+
+async def test_recall_window_uses_project_and_compaction_boundary(tmp_path, monkeypatch):
+    from siwah.core.storage import Store
+    from siwah.core.types import Message
+    from siwah.tools.harness import RecallTool
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    store = Store(tmp_path / "state.db")
+    try:
+        session = store.create_session(cwd=str(workspace), model="mock/model-a")
+        other = store.create_session(cwd=str(tmp_path), model="mock/model-a")
+        old = store.append_message(session.id, Message(role="user", content="unique database rule"))
+        store.set_context_summary(session.id, "compact", 1)
+        store.append_message(session.id, Message(role="user", content="unique recent rule"))
+        foreign = store.append_message(
+            other.id, Message(role="user", content="unique private rule")
+        )
+        context = make_context(workspace, store=store, session_id=session.id)
+        result = await RecallTool().run(context, query="unique")
+        assert old in result.output
+        assert "recent" not in result.output and "private" not in result.output
+        assert "database rule" in (await RecallTool().run(context, message_id=old)).output
+        assert "private" not in (await RecallTool().run(context, message_id=foreign)).output
+    finally:
+        store.close()

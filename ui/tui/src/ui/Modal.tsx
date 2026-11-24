@@ -13,6 +13,7 @@ export function Modal(props: {
   height?: number
   scrollable?: boolean
   escapeCloses?: boolean
+  onDismiss?: () => void
 }) {
   const theme = useTheme()
   const store = useStore()
@@ -77,7 +78,12 @@ export function Modal(props: {
           >
             {clipCells(props.title, width() - 15)}
           </text>
-          <text fg={theme.dim} width={5} flexShrink={0} onMouseDown={() => store.closeDialog()}>
+          <text
+            fg={theme.dim}
+            width={5}
+            flexShrink={0}
+            onMouseDown={() => (props.onDismiss ?? (() => store.closeDialog()))()}
+          >
             {"esc ×"}
           </text>
         </box>

@@ -79,7 +79,7 @@ def test_sessions_messages_fts_and_usage(store: Store):
     assert trajectory.exists()
 
 
-def test_message_views_restore_edit_diffs(store: Store):
+def test_message_views_restore_edit_diffs_and_legacy_timing(store: Store):
     session = store.create_session(cwd=".", model="mock/model-a", title="Demo")
     message_id = store.append_message(
         session.id,
@@ -108,6 +108,14 @@ def test_message_views_restore_edit_diffs(store: Store):
     view = next(item for item in store.get_message_views(session.id) if item["id"] == message_id)
     assert view["diffs"] == [{"path": "hello.py", "patch": "--- a/hello.py\n+++ b/hello.py\n"}]
     assert view["tool_outputs"] == {"call_edit": "full file content"}
+    assert view["tool_outcomes"]["call_edit"]["duration_ms"] is None
+    store.append_trajectory(
+        session.id, {"type": "tool", "tool_call_id": "call_edit", "duration_ms": 42.5}
+    )
+    view = next(item for item in store.get_message_views(session.id) if item["id"] == message_id)
+    assert view["tool_outcomes"] == {
+        "call_edit": {"status": "ok", "error": None, "duration_ms": 42.5}
+    }
 
 
 def test_write_file_view_strips_legacy_verifier_suffix(store: Store):

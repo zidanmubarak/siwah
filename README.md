@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
-    <img src="assets/logo-light.svg" alt="siwah" width="420">
+    <img src="assets/logo-light.svg" alt="siwah wordmark with the Hornbill mascot" width="320">
   </picture>
 </p>
 
@@ -34,7 +34,7 @@ gate patches to its own core code. The kernel, evaluation fixtures, and recovery
 paths are protected from the agent. It is local-first: no hosted service, no
 telemetry, and no hardcoded model IDs, prices, or limits.
 
-![siwah terminal preview](assets/terminal-preview.svg)
+![Illustration of the siwah terminal with its Hornbill welcome, tool cards, and prompt](assets/terminal-preview.svg)
 
 ## Features
 

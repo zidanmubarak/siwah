@@ -14,6 +14,7 @@ export const commands: Command[] = [
   },
   { name: "/new", description: "Start a new session" },
   { name: "/turns", description: "Jump to the start of a previous chat" },
+  { name: "/find", description: "Find text, files, or tool output in this session" },
   { name: "/fork", description: "Fork the current session" },
   { name: "/undo", description: "Restore the previous checkpoint" },
   {
@@ -58,6 +59,11 @@ export const commands: Command[] = [
     name: "/init",
     description: "Create or update AGENTS.md with the agent",
   },
+  { name: "/timing", description: "Inspect where the last task spent its time" },
+  { name: "/steer", description: "Send a correction to the active task" },
+  { name: "/queue", description: "Queue a prompt for after the active task" },
+  { name: "/pending", description: "Manage queued prompts and unapplied corrections" },
+  { name: "/changes", description: "Review file diffs for the latest turn or workspace" },
   {
     name: "/review",
     description: "Review uncommitted changes, a commit, branch, or PR",
@@ -129,6 +135,7 @@ Prompt
   ?              help (empty prompt)
   /effort        choose reasoning effort for the current model
   /init          agent reads the repo and updates AGENTS.md
+  /changes       review latest turn diffs (use workspace for Git changes)
   /review        review uncommitted changes, a commit, branch, or PR
   /permissions   cycle ask -> auto-edit -> yolo (AUTO badge in yolo)
   /reasoning     show or hide model reasoning
@@ -144,6 +151,7 @@ Sessions
   /sessions      current project; Tab in the list toggles all projects
   /new           start a session in the current project
   /turns         jump to the start of a previous chat
+  /find          search the current transcript
   Ctrl+End       jump to the latest message
   PageUp/Down    scroll transcript without leaving the prompt
   Ctrl+O         expand/collapse the latest tool group's output (/tools)

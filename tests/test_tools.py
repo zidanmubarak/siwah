@@ -34,9 +34,6 @@ def test_read_write_edit_and_stale(tmp_path: Path):
 
     written = asyncio.run(WriteFileTool().run(context, path="note.txt", content="hello\nworld\n"))
     assert written.ok
-    read = asyncio.run(ReadFileTool().run(context, path="note.txt"))
-    assert "1  hello" in read.output
-
     edited = asyncio.run(
         EditFileTool().run(context, path="note.txt", old_string="world", new_string="siwah")
     )

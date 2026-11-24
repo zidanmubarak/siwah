@@ -1,16 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="siwah-mark-title siwah-mark-desc">
-  <title id="siwah-mark-title">siwah mark</title>
-  <desc id="siwah-mark-desc">A geometric rencong-inspired blade with a gold hilt, white-iron blade, and a small crimson jewel.</desc>
-  <g transform="translate(14,38) rotate(-10 128 128)">
-    <g fill="#15151b" stroke="#15151b" stroke-width="6" stroke-linejoin="round">
-      <path d="M 76 134 L 102 134 C 103 154 104 172 107 188 C 109 197 98 201 86 201 C 74 201 65 197 67 188 C 70 172 72 154 74 134 Z"/>
-      <rect x="80" y="104" width="22" height="54" rx="9" transform="rotate(-6 91 131)"/>
-      <path d="M 92 118 C 132 106 184 96 228 93 L 246 100 C 222 126 188 143 148 152 C 126 157 102 153 94 144 Z"/>
-    </g>
-    <path d="M 76 134 L 102 134 C 103 154 104 172 107 188 C 109 197 98 201 86 201 C 74 201 65 197 67 188 C 70 172 72 154 74 134 Z" fill="#d4a63a"/>
-    <rect x="80" y="104" width="22" height="54" rx="9" fill="#d4a63a" transform="rotate(-6 91 131)"/>
-    <path fill="#d7dae0" d="M 92 118 C 132 106 184 96 228 93 L 246 100 C 222 126 188 143 148 152 C 126 157 102 153 94 144 Z"/>
-    <path fill="#9CAAC0" opacity="0.4" d="M 241 101 C 219 125 187 142 148 151 C 127 156 103 152 95 144 L 98 135 C 120 144 146 141 167 132 C 190 120 218 112 240 104 Z"/>
-    <path fill="#c2324f" d="M 91 114 L 97 121 L 91 128 L 85 121 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="siwah-mark-title">
+  <title id="siwah-mark-title">Siwah Hornbill mark</title>
+  <g transform="translate(23 58) scale(14)" shape-rendering="crispEdges">
+    <path fill="#A56713" d="M7 0h3v1h-3z M6 1h7v1h-7z M5 2h9v1h-9z M5 3h2v1h-2z M8 3h7v1h-7z M4 4h5v1h-5z M13 4h2v1h-2z M3 5h6v1h-6z M2 6h7v1h-7z M1 7h7v1h-7z M0 8h4v1h-4z M5 8h2v1h-2z M0 9h2v1h-2z M5 9h3v1h-3z"/>
   </g>
 </svg>

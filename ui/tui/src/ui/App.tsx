@@ -363,6 +363,28 @@ function Shell() {
           display: "Create or update AGENTS.md and .siwah/project.md for this repository.",
         })
       }
+      case "/timing":
+        store.openDialog({ type: "timing" })
+        return true
+      case "/steer":
+        return store.steerPrompt(raw.trim().slice(name.length).trim())
+      case "/queue":
+        return store.sendPrompt(raw.trim().slice(name.length).trim())
+      case "/pending":
+        store.openDialog({ type: "pending" })
+        return true
+      case "/find":
+        store.openDialog({ type: "find", query: raw.trim().slice(name.length).trim() })
+        return true
+      case "/changes": {
+        const target = raw.trim().slice(name.length).trim()
+        store.openDialog({
+          type: "changes",
+          scope: target === "workspace" ? "workspace" : "turn",
+          checkpointId: target && target !== "workspace" ? target : undefined,
+        })
+        return true
+      }
       case "/review": {
         const target = raw.trim().slice(name.length).trim()
         return store.sendPrompt(reviewPrompt(store.workspacePath(), target), {
@@ -527,7 +549,10 @@ function Shell() {
   const [footerHeight, setFooterHeight] = createSignal(8)
   let footer: BoxRenderable | undefined
   const activityVisible = () =>
-    store.running() || Boolean(store.permission()) || (messages().length > 0 && awayFromLatest())
+    store.running() ||
+    store.queuedPrompts().length > 0 ||
+    Boolean(store.permission()) ||
+    (messages().length > 0 && awayFromLatest())
 
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.background}>
@@ -647,6 +672,8 @@ function Shell() {
         onHistory={(text) => {
           promptHandle?.setText(text)
         }}
+        canRestorePrompt={() => promptHandle?.empty() ?? false}
+        onRestorePrompt={(text, attachments) => promptHandle?.restore(text, attachments)}
       />
       <ToastStack bottom={footerHeight()} />
     </box>

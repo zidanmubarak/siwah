@@ -267,9 +267,14 @@ siwah rollback kernel-healthy-<hash12>
 untouched. A dirty or conflicting rollback is refused rather than discarding
 your edits.
 
-The canary monitor persists state, but production session sampling is not
-connected end-to-end. Automatic post-session rollback is therefore **not a
-guarantee**. Use `siwah rollback evo-N` deliberately when a promotion is bad.
+The daemon records per-turn observations locally. While a canary is active,
+`GET /v1/evolution` returns matched before-and-after observations by workspace
+and actual model. Each group reports its sample size, tool error rate, correction
+hint rate, abort rate, and allowance per turn. Mixed-model runs and runs that
+overlap a promotion or keep a prompt pinned to another harness are excluded. Treat correction hints as a heuristic.
+
+The protected canary monitor does not consume these observations automatically.
+Use `siwah rollback evo-N` deliberately if a promotion regresses.
 
 ## Audit and state
 
@@ -317,3 +322,26 @@ replacement for reviewing a diff.
 
 See [Evaluation](EVALUATION.md) for the suites and metrics, and
 [Security](SECURITY.md) for the trust model.
+
+
+## Paired replay of coding tasks
+
+Create an external eval directory with a `golden/` folder containing sanitized
+copies of the tasks you want to replay. Use the built-in golden task format and
+give each task the same starting file snapshot and independent acceptance check
+in both runs. Keep private prompts and snapshots out of the public repository.
+
+Run both checkouts with the same task directory, model, seed and step budget.
+Here is an offline smoke path for the existing runner:
+
+```sh
+siwah eval --eval-dir ./replay --suite golden --no-cache --output before.json
+# Run from the candidate checkout with the same replay files.
+siwah eval --eval-dir ./replay --suite golden --no-cache --output after.json
+uv run python scripts/compare-replays.py before.json after.json
+```
+
+The comparison lists pass-rate wins, ties and losses per task alongside duration
+and allowance deltas. For meaningful model measurements, use the existing
+`--live` opt-in and the same explicit allowance cap for both runs. The offline
+mock run only verifies the replay workflow.

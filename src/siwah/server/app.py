@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import hmac
+import subprocess
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -40,6 +41,7 @@ from .schema import (
     AuthProviderStatus,
     AuthStatusResponse,
     Capabilities,
+    ChangesResponse,
     CheckpointCreateRequest,
     CheckpointListResponse,
     CheckpointSummary,
@@ -75,10 +77,12 @@ from .schema import (
     PermissionModeResponse,
     PlanResponse,
     ProviderModels,
+    QueuedPromptResponse,
     QuickNoteRequest,
     QuickNoteResponse,
     RewindRequest,
     RewindResponse,
+    RunTimingResponse,
     SendMessageRequest,
     SendMessageResponse,
     SessionListResponse,
@@ -169,7 +173,7 @@ def create_app(
             )
         return runtime
 
-    def session_response(session: Session) -> SessionResponse:
+    def session_response(session: Session, *, include_queue: bool = False) -> SessionResponse:
         data = session.model_dump()
         if runtime is not None:
             running = runtime.is_running(session.id)
@@ -180,6 +184,18 @@ def create_app(
             elif running:
                 data["status"] = "running"
             data["last_event_seq"] = runtime.last_event_seq(session.id)
+            if include_queue:
+                data["prompt_queue"] = runtime.queue_snapshot(session.id)
+            if running:
+                active_run_id = runtime.active_run_id(session.id)
+                if active_run_id:
+                    data["metadata"] = {
+                        **(data.get("metadata") or {}),
+                        "active_run_id": active_run_id,
+                    }
+                phase = runtime.bus(session.id).run_phase()
+                if phase:
+                    data["metadata"] = {**(data.get("metadata") or {}), "run_phase": phase}
         else:
             data["last_event_seq"] = 0
         return SessionResponse.model_validate(data)
@@ -290,7 +306,7 @@ def create_app(
             mode=body.mode,
             title=body.title,
         )
-        return session_response(session)
+        return session_response(session, include_queue=True)
 
     @app.get(
         "/v1/sessions/{session_id}",
@@ -303,7 +319,7 @@ def create_app(
         session = daemon.get_session(session_id)
         if session is None:
             raise HTTPException(404, detail={"code": "session_not_found", "message": session_id})
-        return session_response(session)
+        return session_response(session, include_queue=True)
 
     @app.get(
         "/v1/sessions/{session_id}/messages",
@@ -610,6 +626,19 @@ def create_app(
             ) from exc
         return ShellResponse.model_validate(result)
 
+    @app.get(
+        "/v1/sessions/{session_id}/timing",
+        response_model=RunTimingResponse | None,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def run_timing(session_id: str) -> RunTimingResponse | None:
+        daemon = require_runtime()
+        if daemon.get_session(session_id) is None:
+            raise HTTPException(404, detail="Session not found")
+        data = daemon.store.latest_run_timing(session_id)
+        return RunTimingResponse.model_validate(data) if data else None
+
     @app.post(
         "/v1/sessions/{session_id}/messages",
         response_model=SendMessageResponse,
@@ -630,6 +659,15 @@ def create_app(
                 },
             )
         try:
+            if body.steer_run_id is not None:
+                message_id, event_id = daemon.steer(session_id, body.content, body.steer_run_id)
+                return SendMessageResponse(
+                    session_id=session_id,
+                    run_id=body.steer_run_id,
+                    event_id=event_id,
+                    status="steering",
+                    message_id=message_id,
+                )
             run_id, event_id, status = daemon.submit_run(
                 session,
                 body.content,
@@ -640,9 +678,48 @@ def create_app(
             )
         except RuntimeError as exc:
             raise HTTPException(409, detail={"code": "run_conflict", "message": str(exc)}) from exc
+        if status == "queued":
+            event_id = await daemon.publish_queue(session_id)
         return SendMessageResponse(
             session_id=session_id, run_id=run_id, event_id=event_id, status=status
         )
+
+    @app.delete(
+        "/v1/sessions/{session_id}/queue/{prompt_id}",
+        response_model=QueuedPromptResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def remove_queued_prompt(session_id: str, prompt_id: str) -> QueuedPromptResponse:
+        item = await require_runtime().remove_queued_prompt(session_id, prompt_id)
+        if item is None:
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "queued_prompt_not_found",
+                    "message": "This prompt is no longer queued",
+                },
+            )
+        return QueuedPromptResponse.model_validate(item, from_attributes=True)
+
+    @app.delete(
+        "/v1/sessions/{session_id}/corrections/{message_id}",
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def resolve_correction(session_id: str, message_id: str) -> dict[str, bool]:
+        daemon = require_runtime()
+        if daemon.get_session(session_id) is None:
+            raise HTTPException(404, detail={"code": "session_not_found", "message": session_id})
+        if not daemon.resolve_correction(session_id, message_id):
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "correction_not_found",
+                    "message": "This correction is no longer pending",
+                },
+            )
+        return {"resolved": True}
 
     @app.get(
         "/v1/sessions/{session_id}/events",
@@ -753,6 +830,37 @@ def create_app(
         return CheckpointListResponse(
             checkpoints=[checkpoint_summary(record) for record in daemon.checkpoints(session_id)]
         )
+
+    @app.get(
+        "/v1/sessions/{session_id}/changes",
+        response_model=ChangesResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def changes(
+        session_id: str,
+        scope: str = "turn",
+        checkpoint_id: str | None = None,
+        end_checkpoint_id: str | None = None,
+        file_path: str | None = None,
+    ) -> ChangesResponse:
+        if scope not in {"turn", "workspace"}:
+            raise HTTPException(status_code=400, detail="Unknown changes scope")
+        daemon = require_runtime()
+        if daemon.store.get_session(session_id) is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        try:
+            data = await asyncio.to_thread(
+                daemon.changes,
+                session_id,
+                scope=scope,
+                checkpoint_id=checkpoint_id,
+                end_checkpoint_id=end_checkpoint_id,
+                file_path=file_path,
+            )
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            raise HTTPException(status_code=400, detail="Changes are unavailable.") from exc
+        return ChangesResponse.model_validate(data)
 
     @app.post(
         "/v1/sessions/{session_id}/checkpoints",
@@ -870,7 +978,17 @@ def create_app(
             for event in read_events(limit=200)
             if str(event.get("event", "")).startswith("evolve.")
         ][-50:]
+        observations = (
+            runtime.store.compare_run_observations(
+                before=state.canary_previous_tag or "baseline",
+                after=state.canary_tag,
+                min_sessions=runtime.config.canary.sessions,
+            )
+            if runtime is not None and state.canary_tag
+            else []
+        )
         return EvolutionSummary(
+            observations=observations,
             tag=state.tag,
             status=state.status,
             paused=is_paused(),

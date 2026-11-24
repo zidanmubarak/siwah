@@ -415,6 +415,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  "/v1/sessions/{session_id}/changes": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Changes */
+    get: operations["changes_v1_sessions__session_id__changes_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   "/v1/sessions/{session_id}/checkpoints": {
     parameters: {
       query?: never
@@ -445,6 +462,23 @@ export interface paths {
     /** Compact */
     post: operations["compact_v1_sessions__session_id__compact_post"]
     delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/sessions/{session_id}/corrections/{message_id}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /** Resolve Correction */
+    delete: operations["resolve_correction_v1_sessions__session_id__corrections__message_id__delete"]
     options?: never
     head?: never
     patch?: never
@@ -536,6 +570,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  "/v1/sessions/{session_id}/queue/{prompt_id}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /** Remove Queued Prompt */
+    delete: operations["remove_queued_prompt_v1_sessions__session_id__queue__prompt_id__delete"]
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   "/v1/sessions/{session_id}/rewind": {
     parameters: {
       query?: never
@@ -564,6 +615,23 @@ export interface paths {
     put?: never
     /** Shell */
     post: operations["shell_v1_sessions__session_id__shell_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/sessions/{session_id}/timing": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Run Timing */
+    get: operations["run_timing_v1_sessions__session_id__timing_get"]
+    put?: never
+    post?: never
     delete?: never
     options?: never
     head?: never
@@ -671,6 +739,40 @@ export interface components {
        * @default true
        */
       sse_resume: boolean
+    }
+    /** ChangeFile */
+    ChangeFile: {
+      /** Old Path */
+      old_path?: string | null
+      /** Patch */
+      patch: string
+      /** Path */
+      path: string
+      /** Status */
+      status: string
+      /**
+       * Truncated
+       * @default false
+       */
+      truncated: boolean
+    }
+    /** ChangesResponse */
+    ChangesResponse: {
+      /** Available */
+      available: boolean
+      /** Base */
+      base?: string | null
+      /** End */
+      end?: string | null
+      /** Files */
+      files: components["schemas"]["ChangeFile"][]
+      /** Scope */
+      scope: string
+      /**
+       * Truncated
+       * @default false
+       */
+      truncated: boolean
     }
     /** CheckpointCreateRequest */
     CheckpointCreateRequest: {
@@ -806,6 +908,10 @@ export interface components {
       events?: {
         [key: string]: unknown
       }[]
+      /** Observations */
+      observations?: {
+        [key: string]: unknown
+      }[]
       /**
        * Paused
        * @default false
@@ -939,6 +1045,8 @@ export interface components {
       content?: string | null
       /** Created At */
       created_at: string
+      /** Delivery */
+      delivery?: "unapplied" | null
       /** Diffs */
       diffs?: components["schemas"]["MessageDiff"][]
       /** Id */
@@ -956,6 +1064,10 @@ export interface components {
       /** Tool Edited */
       tool_edited?: {
         [key: string]: boolean
+      }
+      /** Tool Outcomes */
+      tool_outcomes?: {
+        [key: string]: components["schemas"]["ToolCallOutcome"]
       }
       /** Tool Outputs */
       tool_outputs?: {
@@ -1073,6 +1185,13 @@ export interface components {
       /** Path */
       path: string
     }
+    /** PromptQueue */
+    PromptQueue: {
+      /** Event Seq */
+      event_seq: number
+      /** Items */
+      items: components["schemas"]["QueuedPromptSummary"][]
+    }
     /** ProviderModels */
     ProviderModels: {
       /** Error */
@@ -1081,6 +1200,26 @@ export interface components {
       models?: components["schemas"]["ModelSummary"][]
       /** Provider */
       provider: string
+    }
+    /** QueuedPromptResponse */
+    QueuedPromptResponse: {
+      /** Attachments */
+      attachments: components["schemas"]["MessageAttachment"][]
+      /** Content */
+      content: string
+      /** Id */
+      id: string
+    }
+    /** QueuedPromptSummary */
+    QueuedPromptSummary: {
+      /** Attachment Count */
+      attachment_count: number
+      /** Blocked Reason */
+      blocked_reason?: string | null
+      /** Id */
+      id: string
+      /** Preview */
+      preview: string
     }
     /** QuickNoteRequest */
     QuickNoteRequest: {
@@ -1118,6 +1257,15 @@ export interface components {
        */
       ok: boolean
     }
+    /** RunTimingResponse */
+    RunTimingResponse: {
+      /** Durations */
+      durations: {
+        [key: string]: number
+      }
+      /** Run Id */
+      run_id: string
+    }
     /** SendMessageRequest */
     SendMessageRequest: {
       /** Attachments */
@@ -1127,11 +1275,15 @@ export interface components {
        * @default
        */
       content: string
+      /** Steer Run Id */
+      steer_run_id?: string | null
     }
     /** SendMessageResponse */
     SendMessageResponse: {
       /** Event Id */
       event_id: number
+      /** Message Id */
+      message_id?: string | null
       /** Run Id */
       run_id: string
       /** Session Id */
@@ -1165,6 +1317,7 @@ export interface components {
       mode: string
       /** Model */
       model?: string | null
+      prompt_queue?: components["schemas"]["PromptQueue"] | null
       /** Status */
       status: string
       /** Title */
@@ -1255,6 +1408,18 @@ export interface components {
       name: string
       /** Raw Arguments */
       raw_arguments?: string | null
+    }
+    /** ToolCallOutcome */
+    ToolCallOutcome: {
+      /** Duration Ms */
+      duration_ms?: number | null
+      /** Error */
+      error?: string | null
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "ok" | "error" | "cancelled" | "skipped"
     }
     /** ToolOutputResponse */
     ToolOutputResponse: {
@@ -2314,6 +2479,44 @@ export interface operations {
       }
     }
   }
+  changes_v1_sessions__session_id__changes_get: {
+    parameters: {
+      query?: {
+        scope?: string
+        checkpoint_id?: string | null
+        end_checkpoint_id?: string | null
+        file_path?: string | null
+      }
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        session_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ChangesResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
   checkpoints_v1_sessions__session_id__checkpoints_get: {
     parameters: {
       query?: never
@@ -2404,6 +2607,42 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["CompactResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  resolve_correction_v1_sessions__session_id__corrections__message_id__delete: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        session_id: string
+        message_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: boolean
+          }
         }
       }
       /** @description Validation Error */
@@ -2632,6 +2871,40 @@ export interface operations {
       }
     }
   }
+  remove_queued_prompt_v1_sessions__session_id__queue__prompt_id__delete: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        session_id: string
+        prompt_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["QueuedPromptResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
   rewind_v1_sessions__session_id__rewind_post: {
     parameters: {
       query?: never
@@ -2693,6 +2966,39 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["ShellResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  run_timing_v1_sessions__session_id__timing_get: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        session_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["RunTimingResponse"] | null
         }
       }
       /** @description Validation Error */

@@ -302,3 +302,33 @@ test("an expanded edit diff has exactly one disclosure footer", async () => {
     setup.renderer.destroy()
   }
 })
+
+test("the 60-column activity row keeps queue access visible during retry", async () => {
+  const store = readyStore()
+  store.running(true)
+  store.providerRetry({
+    delayMs: 15500,
+    attempt: 2,
+    max: 5,
+    model: "mock/model-a",
+    code: "rate_limited",
+  })
+  store.queuedPrompts([{ id: "queued_waiting", text: "Follow-up" }])
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 60,
+    height: 24,
+  })
+  try {
+    await setup.renderOnce()
+    const rows = setup.captureCharFrame().split("\n")
+    const y = rows.findIndex((row) => row.includes("1 queued"))
+    expect(y).toBeGreaterThanOrEqual(0)
+    expect(rows[y]).toContain("retry 2/5 · 15.5s")
+    expect(rows[y]).toContain("escape cancel")
+    await setup.mockMouse.click(rows[y].indexOf("1 queued") + 1, y)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("pending inputs")
+  } finally {
+    setup.renderer.destroy()
+  }
+})

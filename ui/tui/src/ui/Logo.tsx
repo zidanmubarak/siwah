@@ -1,73 +1,110 @@
-import { TextAttributes } from "@opentui/core"
+﻿import { TextAttributes } from "@opentui/core"
 import { For, Show } from "solid-js"
 import { useDimensions, useTheme } from "./context"
 import { animationsEnabled, useReveal } from "./Motion"
 
-// User-supplied half-block silhouette: gold hilt, white-iron blade/wordmark.
-// This is a description-based mark, not a verified historical weapon drawing.
-export const siwahMark: [string, string][] = [
-  ["           ", "                ▄▄▄▄▄▄▄▄▄██▀"],
-  ["        ███", "▄▄▄▄▄▄█████████████████▀▀"],
-  ["        █▀█", "██████████████████▀▀▀"],
-  ["        ███", "████▀▀▀▀▀▀▀▀▀▀"],
-  ["     ██████", "   ▄▀▀▀ ▀ █   █  ▀▀▄ █"],
-  ["     ████  ", "    ▀▀▄ █ █▄▀▄█ ▄▀▀█ █▀▀▄"],
-  ["   ████████", "   ▀▀▀  ▀ ▀   ▀  ▀▀▀ ▀  ▀"],
-]
+const tagline = "a coding agent that learns with you"
+const name = "siwah"
 
-export const siwahLine = "◆━━━━━━━━━━━━━━━━◥"
-const markWidth = Math.max(...siwahMark.map(([hilt, rest]) => hilt.length + rest.length))
-const bladeWidth = Math.max(...siwahMark.map(([, rest]) => rest.length))
+// Each grid row is half a terminal cell. X is the body, + is the bill.
+const hornbill = [
+  ".......XXX.....",
+  "......XXXXX++..",
+  ".....XXXX+++++.",
+  ".....XX.X++++++",
+  "....XXXXX....++",
+  "...XXXXXX......",
+  "..XXXXXXX......",
+  ".XXXXXXX.......",
+  "XXXX.XX........",
+  "XX...XXX.......",
+]
+const compactHornbill = [
+  "....XX....",
+  "...XXX+++.",
+  "...X.X++++",
+  "..XXXX....",
+  ".XXXXX....",
+  "XX..XX....",
+]
+const normalWidth = hornbill[0].length
+const compactWidth = compactHornbill[0].length
+const gap = 2
+const welcomePadding = 4
+
+function packRows(pixels: readonly string[]) {
+  return Array.from({ length: pixels.length / 2 }, (_, row) =>
+    Array.from(pixels[row * 2], (top, column) => ({ top, bottom: pixels[row * 2 + 1][column] })),
+  )
+}
+
+const normalRows = packRows(hornbill)
+const compactRows = packRows(compactHornbill)
 
 export function Logo(props: { compact?: boolean; animated?: boolean } = {}) {
   const theme = useTheme()
   const dimensions = useDimensions()
-  const large = () => !props.compact && dimensions().width >= markWidth + 4
-  const allowed = animationsEnabled()
+  const contentWidth = () => dimensions().width - welcomePadding
+  const compact = () => props.compact || contentWidth() < normalWidth + gap + tagline.length
+  const showMark = () => contentWidth() >= compactWidth + gap + name.length
+  const monochrome = () => theme.name === "mono" || process.env.NO_COLOR !== undefined
+  const allowAnimation = animationsEnabled()
   const visible = useReveal(
-    bladeWidth,
-    () =>
-      large() &&
-      theme.name !== "mono" &&
-      process.env.NO_COLOR === undefined &&
-      (props.animated ?? allowed),
+    normalWidth,
+    () => showMark() && !compact() && !monochrome() && allowAnimation && props.animated !== false,
+    240,
   )
+  const color = (pixel: string) => (monochrome() || pixel === "+" ? theme.text : theme.accent)
+
   return (
-    <box flexDirection="column" alignItems="center" flexShrink={0}>
-      <Show
-        when={large()}
-        fallback={
-          <box flexDirection="column" alignItems="center">
-            <box flexDirection="row">
-              <text fg={theme.accentAlt}>{"◆"}</text>
-              <text fg={theme.text}>{siwahLine.slice(1)}</text>
-            </box>
-            <text fg={theme.accent} attributes={TextAttributes.BOLD}>
-              {"siwah"}
-            </text>
-          </box>
-        }
-      >
+    <box flexDirection="row" alignItems="center" flexShrink={0} gap={gap}>
+      <Show when={showMark()}>
         <box flexDirection="column" flexShrink={0}>
-          <For each={siwahMark}>
-            {([hilt, rest]) => (
+          <For each={compact() ? compactRows : normalRows}>
+            {(row) => (
               <box flexDirection="row" flexShrink={0} height={1}>
-                <text fg={theme.accent} attributes={TextAttributes.BOLD} selectable wrapMode="none">
-                  {hilt}
-                </text>
-                <text fg={theme.text} attributes={TextAttributes.BOLD} selectable wrapMode="none">
-                  {rest.slice(0, visible()).padEnd(rest.length)}
-                </text>
+                <For each={row}>
+                  {({ top, bottom }, column) => {
+                    const upper = top !== "."
+                    const lower = bottom !== "."
+                    const split = () => upper && lower && color(top) !== color(bottom)
+                    return (
+                      <text
+                        width={1}
+                        height={1}
+                        flexShrink={0}
+                        wrapMode="none"
+                        fg={color(upper ? top : bottom)}
+                        bg={split() && column() < visible() ? color(bottom) : undefined}
+                      >
+                        {column() >= visible()
+                          ? " "
+                          : upper
+                            ? lower && !split()
+                              ? "█"
+                              : "▀"
+                            : lower
+                              ? "▄"
+                              : " "}
+                      </text>
+                    )
+                  }}
+                </For>
               </box>
             )}
           </For>
         </box>
       </Show>
-      <Show when={!props.compact}>
-        <text fg={theme.dim} marginTop={1} selectable>
-          {"a coding agent that learns with you"}
+      <box flexDirection="column" flexShrink={0}>
+        <text fg={theme.text} attributes={TextAttributes.BOLD} selectable wrapMode="none">
+          {name}
         </text>
-      </Show>
+        <Show when={!compact()}>
+          <text fg={theme.muted} selectable wrapMode="none">
+            {tagline}
+          </text>
+        </Show>
+      </box>
     </box>
   )
 }

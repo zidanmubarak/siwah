@@ -30,6 +30,8 @@ async def test_plan_mode_filters_write_tools_and_writes_plan(
     assert "edit_file" not in names
     assert "bash" not in names
     assert "repo_map" in names
+    assert "skill_list" in names
+    assert "skill_manage" not in names
     plan_path = sample_repo / ".siwah" / "plan.md"
     assert plan_path.exists()
     assert "Fix add." in plan_path.read_text(encoding="utf-8")
