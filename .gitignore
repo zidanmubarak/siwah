@@ -16,7 +16,7 @@ spikes/tui/*/results-*.json
 spikes/tui/*/results-*.err
 __pycache__/
 *.pyc
-.tmp-*/
+.tmp-*
 .pytest_cache/
 .ruff_cache/
 .tmp-linux-ui/

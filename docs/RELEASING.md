@@ -3,7 +3,7 @@
 This page is for maintainers. Releases are explicit: the build script never
 publishes, and no release is rebuilt or retagged after publication.
 
-The 1.0.3 release uses this order:
+The 1.0.4 release uses this order:
 
 1. source bootstrap (primary install);
 2. TestPyPI upload for package verification;
@@ -85,10 +85,10 @@ does not contain the TUI binary; verify `--ui plain` works without it.
 
 ```bash
 git add -A
-git commit -m "release: siwah 1.0.3"
-git tag -a v1.0.3 -m "siwah 1.0.3"
+git commit -m "release: siwah 1.0.4"
+git tag -a v1.0.4 -m "siwah 1.0.4"
 git push origin main
-git push origin v1.0.3
+git push origin v1.0.4
 ```
 
 The update checker reads `pyproject.toml` on `origin/main` and falls back to
@@ -129,16 +129,16 @@ keeps the full project history; the release workflow extracts the matching
 section with:
 
 ```bash
-python scripts/release_notes.py v1.0.3 > release-notes.md
+python scripts/release_notes.py v1.0.4 > release-notes.md
 ```
 
 Then create the release with that file, not the whole changelog:
 
 ```bash
-gh release create v1.0.3 \
-  --title "siwah 1.0.3" \
+gh release create v1.0.4 \
+  --title "siwah 1.0.4" \
   --notes-file release-notes.md \
-  dist/siwah-1.0.3-py3-none-any.whl \
+  dist/siwah-1.0.4-py3-none-any.whl \
   dist/siwah-tui-windows-amd64.exe \
   dist/siwah-tui-linux-x86_64 \
   dist/siwah-tui-darwin-arm64 \
@@ -155,7 +155,7 @@ tagging.
 Upload the wheel to TestPyPI first:
 
 ```bash
-uvx twine upload --repository testpypi dist/siwah-1.0.3-py3-none-any.whl
+uvx twine upload --repository testpypi dist/siwah-1.0.4-py3-none-any.whl
 ```
 
 Use `TWINE_USERNAME=__token__` and a TestPyPI token in `TWINE_PASSWORD` from a
@@ -169,7 +169,7 @@ uv venv .tmp-testpypi --clear
 uv pip install --python .tmp-testpypi/Scripts/python.exe \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  "siwah==1.0.3"
+  "siwah==1.0.4"
 .tmp-testpypi/Scripts/siwah.exe --version
 .tmp-testpypi/Scripts/siwah.exe run "Reply with OK" --ui plain --model <provider>/<model-id>
 ```

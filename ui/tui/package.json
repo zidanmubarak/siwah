@@ -2,7 +2,7 @@
   "name": "@siwah/tui",
   "private": true,
   "type": "module",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "scripts": {
     "start": "bun --conditions=browser src/index.tsx",
     "build": "bun build.ts",

@@ -197,7 +197,7 @@ fallback, use `siwah run "..." --ui plain`.
 - If resizing leaves artifacts, resize once more or restart the TUI; include the
   terminal and size in a report.
 
-macOS Terminal and iTerm2 are not verified for 1.0.3. See
+macOS Terminal and iTerm2 are not verified for 1.0.4. See
 [Terminal support](TERMINAL-SUPPORT.md).
 
 ### The TUI exits immediately
