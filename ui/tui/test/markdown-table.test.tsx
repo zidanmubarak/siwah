@@ -1,10 +1,110 @@
 import { expect, test } from "bun:test"
+import { RGBA } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 
 import { TuiStore } from "../src/state"
 import { resolveTheme } from "../src/theme"
 import { setActiveStore, setActiveTheme } from "../src/ui/context"
 import { MarkdownText } from "../src/ui/MarkdownText"
+
+test("markdown uses the available width and colors inline code without a background", async () => {
+  const store = new TuiStore()
+  const theme = resolveTheme("siwah-dark", false)
+  store.theme(theme)
+  setActiveStore(store)
+  setActiveTheme(theme)
+  const prefix = `Use ${"word ".repeat(17)}`
+  const setup = await testRender(
+    () => (
+      <box backgroundColor={theme.background} width="100%" height="100%">
+        <MarkdownText content={`${prefix}\`work/\` and \`../hidden/\`.`} streaming={false} />
+      </box>
+    ),
+    { width: 120, height: 10 },
+  )
+  try {
+    await setup.renderOnce()
+    expect(setup.captureCharFrame().split("\n")[0]).toContain(`${prefix}work/ and ../hidden/.`)
+    const spans = setup.captureSpans().lines[0].spans
+    const background = spans.find((span) => span.text.includes("Use "))?.bg
+    expect(background).toBeDefined()
+    for (const token of ["work/", "../hidden/"]) {
+      const span = spans.find((entry) => entry.text === token)
+      expect(span?.fg.equals(RGBA.fromHex(theme.user))).toBe(true)
+      expect(background && span?.bg.equals(background)).toBe(true)
+    }
+    await setup.resize(60, 10)
+    await setup.renderOnce()
+    const compact = setup.captureCharFrame().split("\n")
+    expect(compact[0]).not.toContain("../hidden/")
+    expect(compact[1]).toContain("work/ and ../hidden/.")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("markdown headings use the available transcript width", async () => {
+  const store = new TuiStore()
+  const theme = resolveTheme("siwah-dark", false)
+  store.theme(theme)
+  setActiveStore(store)
+  setActiveTheme(theme)
+  const heading = `# ${"heading ".repeat(14)}TAIL`
+  const setup = await testRender(
+    () => (
+      <box backgroundColor={theme.background} width="100%" height="100%">
+        <MarkdownText content={heading} streaming={false} />
+      </box>
+    ),
+    { width: 140, height: 10 },
+  )
+  try {
+    await setup.renderOnce()
+    expect(setup.captureCharFrame().split("\n")[0]).toContain("TAIL")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+for (const name of ["siwah-light", "mono"] as const) {
+  test(`inline code keeps the message background in ${name}`, async () => {
+    const store = new TuiStore()
+    const theme = resolveTheme(name, false)
+    store.theme(theme)
+    setActiveStore(store)
+    setActiveTheme(theme)
+    const setup = await testRender(
+      () => (
+        <box
+          backgroundColor={theme.background === "transparent" ? undefined : theme.background}
+          width="100%"
+          height="100%"
+        >
+          <MarkdownText content={"Use `work/` now."} streaming={false} />
+        </box>
+      ),
+      { width: 80, height: 6 },
+    )
+    try {
+      await setup.renderOnce()
+      expect(setup.captureCharFrame().split("\n")[0]).toContain("Use work/ now.")
+      const spans = setup.captureSpans().lines[0].spans
+      const parent = spans.find((span) => span.text.includes("Use "))
+      const code = spans.find((span) => span.text === "work/")
+      // Mono has no accent color, so the renderer may merge the inline code
+      // with the surrounding text into one span.
+      if (name !== "mono") expect(code).toBeDefined()
+      if (code) {
+        expect(code.fg.equals(RGBA.fromHex(theme.user))).toBe(true)
+        const sameBackground =
+          code.bg && parent?.bg ? code.bg.equals(parent.bg) : code.bg === parent?.bg
+        expect(sameBackground).toBe(true)
+      }
+    } finally {
+      setup.renderer.destroy()
+    }
+  })
+}
 
 test("markdown tables render as bordered boxes", async () => {
   const store = new TuiStore()

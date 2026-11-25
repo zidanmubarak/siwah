@@ -468,14 +468,10 @@ function BlockView(props: { block: MarkdownBlock; width: number }) {
         <CodeBlockView lines={code().lines} />
       </Match>
       <Match when={props.block.kind === "heading"}>
-        <box width="100%" maxWidth={84}>
-          <HeadingView text={heading().text} />
-        </box>
+        <HeadingView text={heading().text} />
       </Match>
       <Match when={props.block.kind === "line"}>
-        <box width="100%" maxWidth={84}>
-          <LineView text={line().text} code={line().code} width={Math.min(84, props.width)} />
-        </box>
+        <LineView text={line().text} code={line().code} width={props.width} />
       </Match>
     </Switch>
   )
@@ -501,7 +497,7 @@ function inline(value: string | null | undefined, theme: ReturnType<typeof useTh
   return parseInline(value ?? "").map((segment) => {
     switch (segment.kind) {
       case "code":
-        return <span style={{ fg: theme.user, bg: theme.panelAlt }}>{` ${segment.text} `}</span>
+        return <span style={{ fg: theme.user }}>{segment.text}</span>
       case "bold":
         return (
           <span style={{ fg: theme.text, attributes: TextAttributes.BOLD }}>{segment.text}</span>

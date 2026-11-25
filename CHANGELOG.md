@@ -8,6 +8,7 @@ Changelog, and the project uses semantic versioning.
 ### Changed
 
 - Refine terminal layout, focus, tool cards, permission panels, and session tabs.
+- Use the available transcript width and give inline Markdown code a text-only accent.
 - Preview theme colors in `/theme` and navigate hunks in expanded diffs.
 
 ## [1.0.4] — 2026-11-25
