@@ -187,6 +187,8 @@ def create_app(
             if include_queue:
                 data["prompt_queue"] = runtime.queue_snapshot(session.id)
             if running:
+                if runtime.is_waiting_permission(session.id):
+                    data["metadata"] = {**(data.get("metadata") or {}), "waiting_permission": True}
                 active_run_id = runtime.active_run_id(session.id)
                 if active_run_id:
                     data["metadata"] = {

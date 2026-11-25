@@ -84,7 +84,7 @@ export function MessageView(props: { message: UiMessage }) {
           flexDirection="row"
           paddingX={1}
           paddingY={dimensions().width < 78 ? 0 : 1}
-          backgroundColor={theme.panelAlt}
+          backgroundColor={dimensions().width >= 78 ? theme.panelAlt : undefined}
           border={["left"]}
           borderColor={theme.user}
           gap={1}
@@ -98,9 +98,6 @@ export function MessageView(props: { message: UiMessage }) {
             userDown = null
           }}
         >
-          <text fg={theme.user} attributes={TextAttributes.BOLD} wrapMode="none">
-            {"›"}
-          </text>
           <Show
             when={longUserMessage() && !expanded()}
             fallback={
@@ -187,7 +184,7 @@ export function MessageView(props: { message: UiMessage }) {
       <Show when={message().role === "assistant"}>
         <box flexDirection="column" paddingX={1} width="100%" minWidth={0} flexShrink={0}>
           <Show when={store.showReasoning() && message().reasoning.length > 0}>
-            <box flexDirection="column" marginTop={1}>
+            <box flexDirection="column">
               <box
                 flexDirection="row"
                 gap={1}
@@ -199,10 +196,10 @@ export function MessageView(props: { message: UiMessage }) {
                   reasoningDown = null
                 }}
               >
-                <text fg={theme.accentAlt} wrapMode="none">
+                <text fg={theme.muted} wrapMode="none">
                   {message().reasoningOpen ? "▾" : "▸"}
                 </text>
-                <text fg={theme.dim} wrapMode="none">
+                <text fg={theme.muted} wrapMode="none">
                   {message().streaming ? "thinking…" : "reasoning"}
                 </text>
               </box>
@@ -221,7 +218,7 @@ export function MessageView(props: { message: UiMessage }) {
           </box>
 
           <Show when={message().toolCalls.length > 0}>
-            <box flexDirection="column" gap={1} marginTop={1}>
+            <box flexDirection="column" marginTop={message().content ? 1 : 0}>
               <For each={toolIds()}>
                 {(id) => {
                   const initial = toolsById().get(id)

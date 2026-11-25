@@ -14,6 +14,7 @@ export function ActivityBar(props: {
   const theme = useTheme()
   const dimensions = useDimensions()
   const [now, setNow] = createSignal(Date.now())
+  const spinning = () => store.running() && !store.permission() && !store.providerRetry()
   const queueLabel = () => {
     const queue = store.queuedPrompts()
     return queue.length
@@ -25,7 +26,7 @@ export function ActivityBar(props: {
   const activityWidth = () => {
     const labels = [queueLabel(), shortcut()].filter(Boolean)
     const reserved = labels.reduce((width, label) => width + Bun.stringWidth(label) + 1, 0)
-    return Math.max(0, dimensions().width - 4 - reserved - (store.running() ? 2 : 0))
+    return Math.max(0, dimensions().width - 4 - reserved - (spinning() ? 2 : 0))
   }
   createEffect(() => {
     if (!store.runPhase()) return
@@ -57,8 +58,8 @@ export function ActivityBar(props: {
   })
   return (
     <box flexDirection="row" height={1} flexShrink={0} paddingX={2} gap={1}>
-      <Show when={store.running()}>
-        <Pulse active={store.running()} color={theme.accentAlt} />
+      <Show when={spinning()}>
+        <Pulse active={spinning()} color={theme.accent} />
       </Show>
       <text
         fg={store.permission() ? theme.warning : theme.muted}
@@ -73,7 +74,7 @@ export function ActivityBar(props: {
       </text>
       <Show when={queueLabel()}>
         <text
-          fg={store.queuedPrompts()[0]?.blockedReason ? theme.warning : theme.accentAlt}
+          fg={store.queuedPrompts()[0]?.blockedReason ? theme.warning : theme.accent}
           wrapMode="none"
           flexShrink={0}
           onMouseDown={() => {
@@ -93,7 +94,7 @@ export function ActivityBar(props: {
           </Show>
         }
       >
-        <text fg={theme.accentAlt} wrapMode="none" flexShrink={0} onMouseDown={props.onJump}>
+        <text fg={theme.accent} wrapMode="none" flexShrink={0} onMouseDown={props.onJump}>
           {shortcut()}
         </text>
       </Show>

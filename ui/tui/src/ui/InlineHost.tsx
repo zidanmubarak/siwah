@@ -22,14 +22,21 @@ export function InlineHost(props: {
     return text
   })
   const kind = () => (mention() ? "files" : slash() ? "commands" : null)
-  const maxRows = () => (store.messages().length === 0 ? 5 : 7)
+  const bottom = () => props.bottom ?? store.promptHeight() + (dimensions().width < 78 ? 5 : 4)
+  const maxRows = () =>
+    Math.min(store.messages().length === 0 ? 5 : 7, Math.max(1, dimensions().height - bottom() - 6))
   const items = createMemo<InlineItem[]>(() => {
     if (mention()) {
-      return filterFiles(mention()?.query ?? "", store.files()).map((file) => ({
-        label: file,
-        detail: "file",
-        value: file,
-      }))
+      return filterFiles(mention()?.query ?? "", store.files()).map((file) => {
+        const directory = /[\\/]$/.test(file)
+        const parts = file.replace(/[\\/]+$/, "").split(/[\\/]/)
+        const label = parts.pop() || file
+        return {
+          label: directory ? `${label}/` : label,
+          detail: parts.join("/") || ".",
+          value: file,
+        }
+      })
     }
     if (slash()) {
       const custom = store.customCommands().map((command) => ({
@@ -50,7 +57,7 @@ export function InlineHost(props: {
       <box
         position="absolute"
         left={2}
-        bottom={props.bottom ?? store.promptHeight() + (dimensions().width < 78 ? 5 : 4)}
+        bottom={bottom()}
         width={dimensions().width - 4}
         height={Math.min(maxRows(), items().length) + 4}
         zIndex={50}
@@ -60,6 +67,7 @@ export function InlineHost(props: {
           items={items()}
           selected={props.selected}
           maxRows={maxRows()}
+          showCompactDetail={kind() === "files"}
           onSelect={props.onSelect}
         />
       </box>

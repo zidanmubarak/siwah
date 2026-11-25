@@ -1,5 +1,5 @@
-import type { MouseEvent } from "@opentui/core"
-import { createMemo, createSignal, For, Index, Show } from "solid-js"
+import { type BoxRenderable, type MouseEvent, ScrollBoxRenderable } from "@opentui/core"
+import { createMemo, createSignal, createUniqueId, For, Index, Show } from "solid-js"
 import { clipCells, diffCounts, fileType } from "../util"
 import { useDimensions, useStore, useTheme } from "./context"
 import { highlightLine, type SyntaxKind } from "./syntax"
@@ -99,13 +99,15 @@ export function DiffView(props: {
   const theme = useTheme()
   const store = useStore()
   const dimensions = useDimensions()
-  const contentWidth = () =>
-    dimensions().width -
-    (store.todos().length > 0 && !store.todosHidden() && dimensions().width >= 100 ? 35 : 0) -
-    12
+  let root: BoxRenderable | undefined
+  const sidebarWidth = () =>
+    store.todos().length > 0 && !store.todosHidden() && dimensions().width >= 100 ? 35 : 0
+  const [layoutInset, setLayoutInset] = createSignal<number>()
+  const contentWidth = () => dimensions().width - sidebarWidth() - (layoutInset() ?? 12)
   const split = () => dimensions().width >= 120 && contentWidth() >= 100
   const counts = createMemo(() => diffCounts(props.patch))
   const [localExpanded, setExpanded] = createSignal(false)
+  const [hunkIndex, setHunkIndex] = createSignal(0)
   const expanded = () => props.expanded ?? localExpanded()
   let down: { x: number; y: number } | null = null
   const click = (event: MouseEvent) => {
@@ -126,6 +128,25 @@ export function DiffView(props: {
       },
     ]
   })
+  const anchorPrefix = createUniqueId()
+  const hunks = createMemo(() => rows().filter((row) => row.kind === "hunk"))
+  const hunkIds = createMemo(
+    () => new Map(hunks().map((row, index) => [row, `diff-${anchorPrefix}-hunk-${index}`])),
+  )
+  const hunkId = (row?: DiffRow) => (row ? hunkIds().get(row) : undefined)
+  const activeHunk = () => Math.min(hunkIndex(), hunks().length - 1)
+  const hasNavigation = () => expanded() && hunks().length > 1
+  const moveHunk = (offset: number) => {
+    const index = Math.max(0, Math.min(hunks().length - 1, activeHunk() + offset))
+    const target = hunkIds().get(hunks()[index])
+    if (!target || index === activeHunk()) return
+    setHunkIndex(index)
+    let container = root?.parent
+    while (container && !(container instanceof ScrollBoxRenderable)) container = container.parent
+    if (container instanceof ScrollBoxRenderable) {
+      container.scrollChildIntoView(target, { align: "start" })
+    }
+  }
   const shouldCollapse = () => rows().length > 4
   const changedRows = () => rows().filter((row) => row.kind === "add" || row.kind === "remove")
   const visibleRows = () => {
@@ -217,6 +238,15 @@ export function DiffView(props: {
   return (
     <Show when={props.patch.trim().length > 0}>
       <box
+        ref={(node) => {
+          root = node
+        }}
+        onSizeChange={() => {
+          if (root)
+            setLayoutInset(
+              dimensions().width - sidebarWidth() - root.width + (props.embedded ? 2 : 3),
+            )
+        }}
         flexDirection="column"
         width="100%"
         border={props.embedded ? [] : ["left", "bottom"]}
@@ -251,6 +281,42 @@ export function DiffView(props: {
             {split() ? "split" : "unified"}
           </text>
         </box>
+        <Show when={hasNavigation()}>
+          <box
+            id={`hunk-nav-${anchorPrefix}`}
+            flexDirection="row"
+            gap={1}
+            paddingX={1}
+            focusable
+            onKeyDown={(event) => {
+              if (event.sequence !== "[" && event.sequence !== "]") return
+              event.stopPropagation()
+              moveHunk(event.sequence === "[" ? -1 : 1)
+            }}
+          >
+            <text
+              fg={theme.muted}
+              wrapMode="none"
+            >{`Hunk ${activeHunk() + 1}/${hunks().length}`}</text>
+            <For each={[-1, 1]}>
+              {(offset) => (
+                <text
+                  fg={theme.accent}
+                  wrapMode="none"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onMouseUp={(event) => {
+                    event.stopPropagation()
+                    if (event.button !== 0) return
+                    root?.findDescendantById(`hunk-nav-${anchorPrefix}`)?.focus()
+                    moveHunk(offset)
+                  }}
+                >
+                  {offset < 0 ? "[ prev" : "] next"}
+                </text>
+              )}
+            </For>
+          </box>
+        </Show>
         <Show when={split()}>
           <box flexDirection="row" backgroundColor={theme.panelAlt}>
             <text width="50%" fg={theme.muted}>
@@ -273,7 +339,12 @@ export function DiffView(props: {
                       row().kind === "add" || row().kind === "remove" || row().kind === "context"
                     }
                     fallback={
-                      <box width="100%" paddingX={1} backgroundColor={background(row())}>
+                      <box
+                        id={hunkId(row())}
+                        width="100%"
+                        paddingX={1}
+                        backgroundColor={background(row())}
+                      >
                         <text fg={row().kind === "hunk" ? theme.muted : theme.dim} wrapMode="word">
                           {row().text || " "}
                         </text>
@@ -318,7 +389,12 @@ export function DiffView(props: {
               <Show
                 when={!row().meta}
                 fallback={
-                  <text fg={theme.dim} bg={theme.panelAlt} wrapMode="word">
+                  <text
+                    id={hunkId(row().meta)}
+                    fg={theme.muted}
+                    bg={theme.panelAlt}
+                    wrapMode="word"
+                  >
                     {row().meta?.text}
                   </text>
                 }

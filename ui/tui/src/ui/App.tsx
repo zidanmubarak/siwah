@@ -64,6 +64,13 @@ function Shell() {
   const dimensions = useDimensions()
   const promptText = () => store.promptText()
   const [inlineSelected, setInlineSelected] = createSignal(0)
+  const [promptFocused, setPromptFocused] = createSignal(false)
+  let welcomeShown = false
+  const renderWelcome = () => {
+    const animated = !welcomeShown
+    welcomeShown = true
+    return <Welcome animated={animated} />
+  }
   let promptHandle: PromptHandle | undefined
   let lastEscape = 0
   let lastCtrlC = 0
@@ -571,7 +578,7 @@ function Shell() {
           onMouseDown={() => promptHandle?.focus()}
         >
           <Show when={messages().length === 0} fallback={null}>
-            <Welcome />
+            {renderWelcome()}
           </Show>
           <Show when={messages().length > 0} fallback={null}>
             <scrollbox
@@ -629,7 +636,7 @@ function Shell() {
             flexShrink={0}
             border
             borderStyle="rounded"
-            borderColor={theme.border}
+            borderColor={promptFocused() ? theme.borderFocus : theme.border}
             backgroundColor={theme.panel}
           >
             <PromptBox
@@ -638,6 +645,7 @@ function Shell() {
               stats={`${store.contextSummary()} · ${store.usageSummary()}`}
               statsColor={store.contextTone()}
               onHeightChange={(height) => store.promptHeight(height)}
+              onFocusChange={setPromptFocused}
               placeholder={
                 store.runtimeError()
                   ? "Daemon unavailable — start `siwah serve`"

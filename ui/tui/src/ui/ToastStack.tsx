@@ -23,7 +23,7 @@ export function ToastStack(props: { bottom?: number } = {}) {
         stickyScroll
         stickyStart="bottom"
         scrollbarOptions={{ visible: false }}
-        zIndex={200}
+        zIndex={80}
         contentOptions={{ gap: 1 }}
       >
         <For each={store.toasts()}>
@@ -56,7 +56,7 @@ export function ToastStack(props: { bottom?: number } = {}) {
                 <box flexDirection="row" gap={1} justifyContent="space-between">
                   <text fg={color()}>{`${glyph} ${toast.tone.toUpperCase()}`}</text>
                   <text
-                    fg={theme.dim}
+                    fg={theme.muted}
                     onMouseDown={(event) => {
                       event.stopPropagation()
                       store.toasts((current) => current.filter((item) => item.id !== toast.id))

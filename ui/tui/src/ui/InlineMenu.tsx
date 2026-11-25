@@ -14,10 +14,11 @@ export function InlineMenu(props: {
   selected: number
   onSelect: (item: InlineItem) => void
   maxRows?: number
+  showCompactDetail?: boolean
 }) {
   const theme = useTheme()
   const dimensions = useDimensions()
-  const showDetail = () => dimensions().width >= 72
+  const showDetail = () => dimensions().width >= 72 || props.showCompactDetail
   const width = () => Math.max(36, dimensions().width - 4)
   const labelWidth = () => Math.max(18, Math.floor(width() * 0.42))
   const rows = () =>
@@ -74,7 +75,11 @@ export function InlineMenu(props: {
               </box>
               <Show when={item.detail && showDetail()}>
                 <text fg={theme.dim} wrapMode="none">
-                  {clipCells(item.detail ?? "", Math.max(8, width() - labelWidth() - 5))}
+                  {clipCells(
+                    item.detail ?? "",
+                    Math.max(8, width() - labelWidth() - 5),
+                    props.showCompactDetail,
+                  )}
                 </text>
               </Show>
             </box>

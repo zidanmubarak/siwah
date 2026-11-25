@@ -197,7 +197,8 @@ test("@ completion lists files and folders", async () => {
     const frame = setup.captureCharFrame()
     expect(frame).toContain("WORKSPACE FILES")
     expect(frame).toContain("live_demo/")
-    expect(frame).toContain("live_demo/greet.py")
+    expect(frame).toContain("greet.py")
+    expect(frame).toContain("live_demo")
   } finally {
     setup.renderer.destroy()
   }
@@ -493,9 +494,9 @@ test("large tool output is bounded inline", async () => {
   try {
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
-    expect(frame).toContain("line 1")
-    expect(frame).toContain("click to expand")
-    expect(frame).not.toContain("10000 lines")
+    expect(frame).toContain("▸ read_file")
+    expect(frame).not.toContain("line 1")
+    expect(frame).not.toContain("line 10000")
     expect(frame).toMatchSnapshot("tool-inline-100x30")
   } finally {
     setup.renderer.destroy()
@@ -536,12 +537,16 @@ test("click expands only the chosen tool", async () => {
     const frame = setup.captureCharFrame()
     const rows = frame.split("\n")
     const row = rows.findIndex((line) => line.includes("math_utils.py"))
-    const bodyRow = rows.findIndex((line) => line.includes("line 3"))
     expect(row).toBeGreaterThanOrEqual(0)
-    expect(bodyRow).toBeGreaterThanOrEqual(0)
     await setup.mockMouse.click(8, row)
     expect(store.isToolExpanded("call_1")).toBe(true)
     expect(store.isToolExpanded("call_2")).toBe(false)
+    await setup.renderOnce()
+    const bodyRow = setup
+      .captureCharFrame()
+      .split("\n")
+      .findIndex((line) => line.includes("line 3"))
+    expect(bodyRow).toBeGreaterThanOrEqual(0)
     await setup.mockMouse.drag(8, bodyRow, 30, bodyRow)
     expect(store.isToolExpanded("call_1")).toBe(true)
     await setup.mockMouse.click(8, bodyRow)

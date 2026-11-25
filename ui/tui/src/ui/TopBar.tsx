@@ -1,5 +1,5 @@
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core"
-import { createEffect, For, Show } from "solid-js"
+import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { clipCells } from "../util"
 import { useDimensions, useStore, useTheme } from "./context"
 
@@ -28,9 +28,12 @@ export function TopBar() {
     const fit = Math.floor(available() / count())
     return Math.max(minTabWidth, Math.min(desiredTabWidth(), fit))
   }
-  const labelWidth = () => Math.max(1, tabWidth() - 6)
   const divider = () => "─".repeat(Math.max(1, dimensions().width - 4))
   let tabs: ScrollBoxRenderable | undefined
+  const measuredTabWidth = createMemo(tabWidth)
+  const backgroundRunning = createMemo(() =>
+    sessions().some((session) => session.id !== activeId() && store.sessionRunning(session)),
+  )
 
   const scrollTabs = (direction: -1 | 1) => {
     tabs?.scrollBy({ x: direction * Math.max(2, tabWidth()) * 2, y: 0 })
@@ -38,8 +41,29 @@ export function TopBar() {
 
   createEffect(() => {
     const id = activeId()
+    measuredTabWidth()
+    dimensions().width
     if (!id) return
     queueMicrotask(() => tabs?.scrollChildIntoView(`tab-${id}`, { align: "nearest" }))
+  })
+  createEffect(() => {
+    if (store.connection() !== "online" || !backgroundRunning()) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // Schedule the next poll only after the previous one settles. A slow
+    // daemon must not accumulate overlapping session-list requests.
+    const poll = async () => {
+      try {
+        await store.reloadSessions({ quiet: true })
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 2000)
+      }
+    }
+    timer = setTimeout(poll, 2000)
+    onCleanup(() => {
+      cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
+    })
   })
 
   return (
@@ -81,6 +105,14 @@ export function TopBar() {
               <For each={sessions()}>
                 {(session) => {
                   const active = () => session.id === activeId()
+                  const waiting = () =>
+                    active()
+                      ? Boolean(store.permission())
+                      : store.sessionRunning(session) &&
+                        session.metadata?.waiting_permission === true
+                  const marker = () => (waiting() ? "!" : store.sessionRunning(session) ? "●" : "")
+                  const labelWidth = () =>
+                    Math.max(1, tabWidth() - 2 - (active() ? 2 : 0) - (marker() ? 2 : 0))
                   return (
                     <box
                       id={`tab-${session.id}`}
@@ -93,8 +125,8 @@ export function TopBar() {
                       backgroundColor={active() ? theme.selection : undefined}
                       onMouseDown={() => void store.switchSession(session.id)}
                     >
-                      <Show when={store.sessionRunning(session)} fallback={<text> </text>}>
-                        <text fg={theme.accentAlt}>{"●"}</text>
+                      <Show when={marker()}>
+                        <text fg={waiting() ? theme.warning : theme.muted}>{marker()}</text>
                       </Show>
                       <text
                         fg={active() ? theme.accent : theme.muted}
@@ -105,16 +137,18 @@ export function TopBar() {
                       >
                         {clipCells(session.title?.trim() || "untitled", labelWidth())}
                       </text>
-                      <text
-                        fg={theme.dim}
-                        wrapMode="none"
-                        onMouseDown={(event) => {
-                          event.stopPropagation()
-                          void store.closeSessionTab(session.id)
-                        }}
-                      >
-                        {"×"}
-                      </text>
+                      <Show when={active()}>
+                        <text
+                          fg={theme.muted}
+                          wrapMode="none"
+                          onMouseDown={(event) => {
+                            event.stopPropagation()
+                            void store.closeSessionTab(session.id)
+                          }}
+                        >
+                          {"×"}
+                        </text>
+                      </Show>
                     </box>
                   )
                 }}

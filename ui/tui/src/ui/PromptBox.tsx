@@ -4,11 +4,12 @@ import { basename } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import type { TextareaRenderable } from "@opentui/core"
-import { TextAttributes } from "@opentui/core"
+import { RenderableEvents, TextAttributes } from "@opentui/core"
 import { useKeyboard, usePaste } from "@opentui/solid"
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
 import type { MessageAttachment } from "../api/client"
 import type { PromptImage } from "../state"
+import { clipCells } from "../util"
 import { useDimensions, useStore, useTheme } from "./context"
 
 export type PromptHandle = {
@@ -37,6 +38,7 @@ export function PromptBox(props: {
   ) => boolean | undefined | Promise<boolean | undefined>
   onReady: (handle: PromptHandle) => void
   onHeightChange?: (height: number) => void
+  onFocusChange?: (focused: boolean) => void
 }) {
   const theme = useTheme()
   const store = useStore()
@@ -45,6 +47,13 @@ export function PromptBox(props: {
   let area: TextareaRenderable | undefined
   const [value, setValue] = createSignal("")
   const [images, setImages] = createSignal<PromptImage[]>([])
+  const [focused, setFocused] = createSignal(false)
+  const focusChanged = (focus: boolean) => {
+    setFocused(focus)
+    props.onFocusChange?.(focus)
+  }
+  const onFocus = () => focusChanged(true)
+  const onBlur = () => focusChanged(false)
   let revision = 0
   let submitting = false
   let disposed = false
@@ -78,6 +87,8 @@ export function PromptBox(props: {
   )
   onCleanup(() => {
     disposed = true
+    area?.off(RenderableEvents.FOCUSED, onFocus)
+    area?.off(RenderableEvents.BLURRED, onBlur)
   })
 
   const addImage = (image: PromptImage): boolean => {
@@ -254,10 +265,12 @@ export function PromptBox(props: {
     const usable = Math.max(20, dimensions().width - 8)
     const wrapped = value()
       .split("\n")
-      .reduce((total, line) => total + Math.max(1, Math.ceil(line.length / usable)), 0)
-    return Math.min(8, Math.max(1, wrapped)) + (images().length > 0 ? 1 : 0)
+      .reduce((total, line) => total + Math.max(1, Math.ceil(Bun.stringWidth(line) / usable)), 0)
+    const limit = Math.max(1, Math.min(8, Math.floor(dimensions().height / 4)))
+    return Math.min(limit, wrapped)
   }
-  createEffect(() => props.onHeightChange?.(height()))
+  createEffect(() => props.onHeightChange?.(height() + (images().length > 0 ? 1 : 0)))
+  const sendHint = () => (store.running() ? "Enter queue · /steer redirect" : "Enter send")
 
   return (
     <box
@@ -272,7 +285,7 @@ export function PromptBox(props: {
         width="100%"
         border={props.embedded ? [] : ["left"]}
         borderStyle="rounded"
-        borderColor={value().length > 0 ? theme.borderFocus : theme.border}
+        borderColor={focused() ? theme.borderFocus : theme.border}
         backgroundColor={theme.panel}
         paddingX={1}
         onMouseDown={() => handle.focus()}
@@ -283,7 +296,7 @@ export function PromptBox(props: {
               {"›"}
             </text>
             <text
-              fg={props.mode === "plan" ? theme.warning : theme.accentAlt}
+              fg={props.mode === "plan" ? theme.warning : theme.text}
               attributes={TextAttributes.BOLD}
               wrapMode="none"
             >
@@ -292,7 +305,10 @@ export function PromptBox(props: {
             <Show
               when={permission() === "yolo"}
               fallback={
-                <text fg={permission() === "auto-edit" ? theme.warning : theme.dim} wrapMode="none">
+                <text
+                  fg={permission() === "auto-edit" ? theme.warning : theme.muted}
+                  wrapMode="none"
+                >
                   {permission()}
                 </text>
               }
@@ -337,9 +353,13 @@ export function PromptBox(props: {
                   {" file "}
                 </text>
                 <text fg={theme.muted} wrapMode="none">
-                  {image.name ?? image.mime}
+                  {clipCells(
+                    image.name ?? image.mime,
+                    Math.max(3, Math.floor((dimensions().width - 8) / images().length) - 12),
+                    true,
+                  )}
                 </text>
-                <text fg={theme.dim} wrapMode="none" onMouseDown={() => removeImage(image)}>
+                <text fg={theme.muted} wrapMode="none" onMouseDown={() => removeImage(image)}>
                   {"×"}
                 </text>
               </box>
@@ -349,6 +369,8 @@ export function PromptBox(props: {
         <textarea
           ref={(node) => {
             area = node
+            node.on(RenderableEvents.FOCUSED, onFocus)
+            node.on(RenderableEvents.BLURRED, onBlur)
           }}
           width="100%"
           height={height()}
@@ -359,7 +381,7 @@ export function PromptBox(props: {
           placeholder={
             props.placeholder ?? "Ask siwah to change something… (paste text or an image)"
           }
-          placeholderColor={theme.dim}
+          placeholderColor={theme.muted}
           textColor={theme.text}
           focusedTextColor={theme.text}
           backgroundColor={theme.panel}
@@ -380,11 +402,18 @@ export function PromptBox(props: {
             props.onChange(next)
           }}
         />
+        <Show when={props.embedded && dimensions().height >= 24}>
+          <text fg={theme.muted} height={1} wrapMode="none">
+            {focused()
+              ? `${sendHint()}${dimensions().width >= 78 ? " · Shift+Enter newline" : ""}`
+              : ""}
+          </text>
+        </Show>
       </box>
       <Show when={!props.embedded}>
         <box height={1} flexDirection="row" gap={2} paddingLeft={1}>
           <text fg={theme.dim} wrapMode="none">
-            {"enter send"}
+            {sendHint()}
           </text>
           <text fg={theme.dim} wrapMode="none">
             {"shift+enter newline"}

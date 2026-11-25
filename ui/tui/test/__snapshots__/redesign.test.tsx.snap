@@ -38,12 +38,12 @@ exports[`tasks redesigned surface snapshot: tasks-workbench 1`] = `
         ╭──────────────────────────────────────────────────────────────╮        
         │  tasks                                                esc ×  │        
         │                                                              │        
-        │   TASKS                                              1/3 ×   │        
-        │   ━━━━ ──────── 33%                                          │        
-        │                                                              │        
+        │   TASKS                                          1/3 33% ×   │        
         │   ✓ Inspect the implementation                               │        
         │   ◐ Apply the smallest fix                                   │        
         │   ! Run the verifier                                         │        
+        │                                                              │        
+        │                                                              │        
         │                                                              │        
         │                                                              │        
         │                                                              │        
@@ -65,23 +65,23 @@ exports[`tasks redesigned surface snapshot: tasks-workbench 1`] = `
 `;
 
 exports[`toast redesigned surface snapshot: toast-workbench 1`] = `
-"     Redesign ×                                                         ＋ new  
+"   Redesign   ×                                                         ＋ new  
   ────────────────────────────────────────────────────────────────────────────  
                                                                                 
                           │ ✓ SUCCESS                                       ×   
                           │ Tests passed. The workspace is ready.               
                           └───────────────────────────────────────────────────  
                                                                                 
+                                                                                
                     ▄███▄▄▄                                                     
-                   ██▀██████▄  siwah                                            
-                 ▄█████    ▀▀  a coding agent that learns with you              
-               ▄██████▀                                                         
+                   ██▀██████▄                                                   
+                 ▄█████    ▀▀  siwah                                            
+               ▄██████▀        a coding agent that learns with you              
               ██▀▀ ██▄                                                          
                                                                                 
+                                 /help  explore                                 
                                                                                 
-                      Build something. Understand anything.                     
                                                                                 
-                       /sessions  resume   /help  explore                       
                                                                                 
                                                                                 
                                                                                 
@@ -89,15 +89,15 @@ exports[`toast redesigned surface snapshot: toast-workbench 1`] = `
   │ › build ask                                    ctx — · 0 tok · $0.000000 │  
   │                                                                          │  
   │ Ask siwah to change something…                                           │  
-  │                                                                          │  
-  │ mock/model-a off                                           D:/work/siwah │  
+  │ Enter send · Shift+Enter newline                                         │  
+  │ mock/model-a off                                                   siwah │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
 "
 `;
 
 exports[`split redesigned surface snapshot: split-workbench 1`] = `
-"     Redesign ×                                                                                                                     ＋ new  
+"   Redesign   ×                                                                                                                     ＋ new  
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
                                                                                                                                             
    Implemented the requested fix.                                                                                                           
@@ -121,7 +121,7 @@ exports[`split redesigned surface snapshot: split-workbench 1`] = `
   │ › build ask                                                                                                ctx — · 0 tok · $0.000000 │  
   │                                                                                                                                      │  
   │ Ask siwah to change something…                                                                                                       │  
-  │                                                                                                                                      │  
+  │ Enter send · Shift+Enter newline                                                                                                     │  
   │ mock/model-a off                                                                                                       D:/work/siwah │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                             

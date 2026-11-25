@@ -121,14 +121,14 @@ for (const width of [60, 100, 120]) {
       if (!input || !provider) throw new Error("Composer input or provider row is missing")
       expect(rows[input.y - 1]?.replace(/[│ ]/g, "")).toBe("")
       expect(provider.y - (input.y + input.height)).toBe(1)
-      expect(rows[provider.y - 1]?.replace(/[│ ]/g, "")).toBe("")
+      expect(rows[provider.y - 1]).toContain("Enter send")
       const bounds = [panel.x, panel.y, panel.width, panel.height]
       store.running(true)
       await setup.renderOnce()
       const activeRows = setup.captureCharFrame().split("\n")
       const activity = activeRows.findIndex((line) => line.includes("working ·"))
       expect(activity).toBeGreaterThan(activeRows.findIndex((line) => line.includes("╰")))
-      expect(setup.captureCharFrame().match(/⠋/g)).toHaveLength(1)
+      expect(activeRows[activity]).toMatch(/^\s*· working ·/)
       expect([panel.x, panel.y, panel.width, panel.height]).toEqual(bounds)
       expect(
         nodes(panel).some(

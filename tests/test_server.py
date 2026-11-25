@@ -20,6 +20,7 @@ from siwah.harness.bootstrap import ensure_harness
 from siwah.harness.skills import create_skill
 from siwah.kernel.audit import audit_event
 from siwah.paths import harness_dir
+from siwah.permissions.policy import PermissionRequest
 from siwah.providers.registry import ProviderRegistry, RoleRouter
 from siwah.server.app import create_app
 from siwah.server.runtime import DaemonRuntime
@@ -788,3 +789,31 @@ async def test_shutdown_does_not_start_queued_work(config, store, sample_repo, m
     assert provider_calls == 1
     assert not runtime._tasks
     assert runtime.queue_snapshot(session.id)["items"][0]["id"] == queued
+
+
+async def test_sessions_report_permission_waiters_for_background_tabs(config, store, sample_repo):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    request = PermissionRequest(tool="bash", kind="bash", preview="pytest -q")
+    wait = asyncio.create_task(
+        runtime._resolve_permission(request, "approval", session_id=session.id)
+    )
+    runtime._tasks[session.id] = wait
+    app = create_app(config, runtime=runtime, token="test-token")
+    headers = {"Authorization": "Bearer test-token"}
+    try:
+        await asyncio.sleep(0)
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/v1/sessions", headers=headers)
+            row = next(item for item in response.json()["sessions"] if item["id"] == session.id)
+            assert row["status"] == "running"
+            assert row["metadata"]["waiting_permission"] is True
+            assert runtime.resolve_permission("approval", "once", session_id=session.id)
+            await wait
+            response = await client.get(f"/v1/sessions/{session.id}", headers=headers)
+            assert "waiting_permission" not in response.json()["metadata"]
+    finally:
+        wait.cancel()
+        await asyncio.gather(wait, return_exceptions=True)

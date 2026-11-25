@@ -548,12 +548,12 @@ export class TuiStore {
     }
   }
 
-  async reloadSessions(): Promise<void> {
+  async reloadSessions(options: { quiet?: boolean } = {}): Promise<void> {
     if (!this.api) return
     try {
       this.sessions((await this.api.sessions()).sessions)
     } catch (error) {
-      this.notify(errorSuggestion(error), "error")
+      if (!options.quiet) this.notify(errorSuggestion(error), "error")
     }
   }
 

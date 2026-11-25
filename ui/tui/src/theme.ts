@@ -72,7 +72,7 @@ const themes: Record<ThemeName, Theme> = {
     borderFocus: "#B45309",
     text: "#17202B",
     muted: "#556274",
-    dim: "#7C8898",
+    dim: "#667385",
     accent: "#B45309",
     accentAlt: "#0E766E",
     success: "#177245",

@@ -69,3 +69,27 @@ test("session tabs have equal widths and remain reachable when they overflow", a
     setup.renderer.destroy()
   }
 })
+
+test("the inactive tab marks a pending permission and keeps only the active close action", async () => {
+  const store = new TuiStore()
+  const first = session("first", "design")
+  const second = {
+    ...session("second", "checks"),
+    status: "running",
+    metadata: { waiting_permission: true },
+  }
+  store.session(first)
+  store.sessions([first, second])
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 60,
+    height: 20,
+  })
+  try {
+    await setup.renderOnce()
+    const tabs = setup.captureCharFrame().split("\n")[0]
+    expect(tabs).toContain("! checks")
+    expect(tabs.match(/×/g)).toHaveLength(1)
+  } finally {
+    setup.renderer.destroy()
+  }
+})

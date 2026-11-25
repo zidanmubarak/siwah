@@ -15,7 +15,7 @@ export function TodoPanel(props: { embedded?: boolean } = {}) {
   const store = useStore()
   const theme = useTheme()
   const done = () => store.todos().filter((item) => item.status === "done").length
-  const progress = () => (store.todos().length ? done() / store.todos().length : 0)
+  const percentage = () => Math.round((done() * 100) / Math.max(1, store.todos().length))
 
   return (
     <box
@@ -30,7 +30,7 @@ export function TodoPanel(props: { embedded?: boolean } = {}) {
       flexDirection="column"
     >
       <box flexDirection="row" justifyContent="space-between" gap={1} flexShrink={0}>
-        <text fg={theme.accent} attributes={1}>
+        <text fg={theme.text} attributes={1}>
           {"TASKS"}
         </text>
         <box flexDirection="row" gap={1}>
@@ -40,6 +40,9 @@ export function TodoPanel(props: { embedded?: boolean } = {}) {
             </text>
           </Show>
           <text fg={theme.dim}>{`${done()}/${store.todos().length}`}</text>
+          <Show when={store.todos().length > 0}>
+            <text fg={theme.muted}>{`${percentage()}%`}</text>
+          </Show>
           <text
             fg={theme.dim}
             wrapMode="none"
@@ -48,11 +51,6 @@ export function TodoPanel(props: { embedded?: boolean } = {}) {
             {"×"}
           </text>
         </box>
-      </box>
-      <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0}>
-        <text fg={theme.accentAlt}>{"━".repeat(Math.round(progress() * 12))}</text>
-        <text fg={theme.border}>{"─".repeat(12 - Math.round(progress() * 12))}</text>
-        <text fg={theme.dim}>{`${Math.round(progress() * 100)}%`}</text>
       </box>
       <Show when={store.todos().length > 0} fallback={<text fg={theme.dim}>No active plan</text>}>
         <Show when={!props.embedded} fallback={<TaskRows />}>
@@ -103,7 +101,11 @@ function TaskRows() {
             height={1}
             flexShrink={0}
             gap={1}
-            backgroundColor={item().status === "in_progress" ? theme.panelAlt : theme.panel}
+            backgroundColor={
+              item().status === "in_progress" || item().status === "blocked"
+                ? theme.panelAlt
+                : theme.panel
+            }
           >
             <text
               fg={

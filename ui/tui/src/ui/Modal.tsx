@@ -79,7 +79,7 @@ export function Modal(props: {
             {clipCells(props.title, width() - 15)}
           </text>
           <text
-            fg={theme.dim}
+            fg={theme.muted}
             width={5}
             flexShrink={0}
             onMouseDown={() => (props.onDismiss ?? (() => store.closeDialog()))()}

@@ -1,6 +1,6 @@
 import { TextAttributes } from "@opentui/core"
 import { createMemo, Show } from "solid-js"
-import { clipCells, gitBranch } from "../util"
+import { clipCells, gitBranch, projectName } from "../util"
 import { useDimensions, useStore, useTheme } from "./context"
 
 export function StatusBar(props: { embedded?: boolean } = {}) {
@@ -46,7 +46,8 @@ export function StatusBar(props: { embedded?: boolean } = {}) {
     if (store.connection() === "reconnecting") return "reconnecting"
     return "offline"
   }
-  const right = () => [cwd(), branch()].filter(Boolean).join("  ")
+  const right = () =>
+    [dimensions().width >= 100 ? cwd() : projectName(cwd()), branch()].filter(Boolean).join("  ")
   const rightLabel = () =>
     clipCells(
       right(),
@@ -63,7 +64,7 @@ export function StatusBar(props: { embedded?: boolean } = {}) {
       justifyContent="space-between"
       width="100%"
       flexShrink={0}
-      marginTop={props.embedded ? 1 : 0}
+      marginTop={props.embedded && dimensions().height < 24 ? 1 : 0}
       paddingX={props.embedded ? 1 : 2}
     >
       <box flexDirection="row" gap={1} minWidth={0}>
@@ -73,10 +74,10 @@ export function StatusBar(props: { embedded?: boolean } = {}) {
           </text>
         </Show>
         <Show when={dimensions().width >= 60}>
-          <text fg={theme.dim} wrapMode="none">
+          <text fg={theme.muted} wrapMode="none">
             {model()}
           </text>
-          <text fg={theme.accentAlt} attributes={TextAttributes.BOLD} wrapMode="none">
+          <text fg={theme.muted} attributes={TextAttributes.BOLD} wrapMode="none">
             {effort()}
           </text>
         </Show>

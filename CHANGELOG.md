@@ -3,6 +3,13 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [Unreleased]
+
+### Changed
+
+- Refine terminal layout, focus, tool cards, permission panels, and session tabs.
+- Preview theme colors in `/theme` and navigate hunks in expanded diffs.
+
 ## [1.0.4] — 2026-11-25
 
 ### Changed

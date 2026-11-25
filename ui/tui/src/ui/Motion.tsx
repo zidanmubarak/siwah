@@ -47,10 +47,8 @@ function useFrames(active: () => boolean, length: number, interval: number) {
 /** A compact, low-noise spinner for inline running indicators. */
 export function Pulse(props: { active: boolean; color: string; animated?: boolean }) {
   const allowed = animationsEnabled()
-  const frame = useFrames(
-    () => props.active && process.env.NO_COLOR === undefined && (props.animated ?? allowed),
-    pulseFrames.length,
-    90,
-  )
-  return <text fg={props.color}>{pulseFrames[frame()]}</text>
+  const animate = () =>
+    props.active && process.env.NO_COLOR === undefined && (props.animated ?? allowed)
+  const frame = useFrames(animate, pulseFrames.length, 90)
+  return <text fg={props.color}>{animate() ? pulseFrames[frame()] : "·"}</text>
 }

@@ -705,3 +705,144 @@ test("transcript search finds tool output and paths, then jumps to the selected 
     setup.renderer.destroy()
   }
 })
+
+for (const width of [60, 90, 120]) {
+  for (const theme of ["siwah-dark", "siwah-light", "mono"] as const) {
+    test(`redesigned session preserves draft and access to tools and permission at ${width} columns in ${theme}`, async () => {
+      const store = readyStore()
+      store.theme(resolveTheme(theme, false))
+      store.messages([
+        message({ id: "request", role: "user", content: "Review the parser." }),
+        message({
+          id: "answer",
+          content: "## Findings\n\nThe parser needs a guard.",
+          toolCalls: [{ ...tool("read", "parser.ts", "read_file"), output: "const parser = 1" }],
+        }),
+      ])
+      const setup = await testRender(() => <App store={store} initialize={false} />, {
+        width,
+        height: 32,
+      })
+      try {
+        await setup.renderOnce()
+        const frame = setup.captureCharFrame()
+        expect(frame).toContain("Review the parser.")
+        expect(frame).not.toContain("You")
+        expect(frame).toContain("▸ read_file")
+        expect(frame).not.toContain("const parser = 1")
+        expect(frame).toContain("Enter send")
+        setup.mockInput.typeText("Keep this")
+        setup.mockInput.pressKey("n", { ctrl: true })
+        setup.mockInput.typeText("draft")
+        store.running(true)
+        await setup.renderOnce()
+        expect(setup.captureCharFrame()).toContain("Enter queue")
+        store.permission({
+          requestId: "matrix-permission",
+          tool: "bash",
+          kind: "shell",
+          preview: "$ pytest -q",
+          choices: ["once", "session", "always", "deny"],
+        })
+        await setup.renderOnce()
+        const waiting = setup.captureCharFrame()
+        expect(waiting).toContain("permission required")
+        expect(waiting).toContain("[v] view full")
+        setup.mockInput.pressKey("v")
+        await setup.renderOnce()
+        expect(setup.captureCharFrame()).toContain("$ pytest -q")
+        setup.mockInput.pressEscape()
+        await settle()
+        expect(store.dialog()).toBeNull()
+        store.permission(null)
+        await setup.renderOnce()
+        expect(store.promptText()).toBe("Keep this\ndraft")
+        expect(setup.captureCharFrame()).toContain("Enter queue")
+      } finally {
+        setup.renderer.destroy()
+      }
+    })
+  }
+}
+
+test("theme picker previews the highlighted palette without applying it", async () => {
+  const store = readyStore()
+  const picked: string[] = []
+  store.setTheme = (name) => {
+    picked.push(name)
+  }
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 60,
+    height: 22,
+  })
+  try {
+    store.openDialog({ type: "theme" })
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Focused prompt")
+    setup.mockInput.pressArrow("down")
+    await setup.renderOnce()
+    expect(picked).toEqual([])
+    expect(setup.captureCharFrame()).toContain("+ Added")
+    setup.mockInput.pressEnter()
+    expect(picked).toEqual(["siwah-light"])
+    expect(store.dialog()).toBeNull()
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("a long single-line tool error remains expandable", async () => {
+  const store = readyStore()
+  const error = `parser failed: ${"detail ".repeat(16)}TAIL_MARKER`
+  store.messages([
+    message({
+      id: "failure",
+      toolCalls: [{ ...tool("error-tool", "parser.ts", "read_file"), status: "error", error }],
+    }),
+  ])
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 100,
+    height: 30,
+  })
+  try {
+    await setup.renderOnce()
+    const before = setup.captureCharFrame()
+    const row = before.split("\n").findIndex((line) => line.includes("read_file"))
+    expect(row).toBeGreaterThanOrEqual(0)
+    expect(before).not.toContain("TAIL_MARKER")
+    await setup.mockMouse.click(10, row)
+    expect(store.isToolExpanded("error-tool")).toBe(true)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("TAIL_MARKER")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("session dialog reflects an active permission wait", async () => {
+  const store = readyStore()
+  const active = store.session()
+  if (!active) throw new Error("Ready store is missing its session")
+  store.sessions([active])
+  store.permission({
+    requestId: "session-wait",
+    tool: "bash",
+    kind: "shell",
+    preview: "$ pytest -q",
+    choices: ["once", "deny"],
+  })
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 90,
+    height: 28,
+  })
+  try {
+    store.openDialog({ type: "sessions" })
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Waiting for permission")
+    store.permission(null)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).not.toContain("Waiting for permission")
+  } finally {
+    setup.renderer.destroy()
+  }
+})

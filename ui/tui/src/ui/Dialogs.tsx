@@ -1,6 +1,7 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { useKeyboard, usePaste, useRenderer } from "@opentui/solid"
+import type { JSX } from "solid-js"
 import {
   createEffect,
   createMemo,
@@ -10,11 +11,10 @@ import {
   Show,
   untrack,
 } from "solid-js"
-
-import type { Checkpoint, MessageAttachment } from "../api/client"
+import type { Checkpoint, MessageAttachment, Session } from "../api/client"
 import { commands, fuzzyMatch, helpText } from "../commands"
 import type { DialogState, Effort, UiMessage } from "../state"
-import { type ThemeName, themeNames } from "../theme"
+import { overlayBackground, resolveTheme, type ThemeName, themeNames } from "../theme"
 import {
   clipCells,
   ellipsis,
@@ -414,6 +414,7 @@ function ListDialog(props: {
   searchable?: boolean
   initialQuery?: string
   searchItems?: (query: string) => ListItem[]
+  preview?: (value: string) => JSX.Element
 }) {
   const theme = useTheme()
   const dimensions = useDimensions()
@@ -423,7 +424,7 @@ function ListDialog(props: {
   const detailWidth = () => Math.max(8, contentWidth() - labelWidth() - 1)
   const [selected, setSelected] = createSignal(props.initial ?? 0)
   const [query, setQuery] = createSignal(props.initialQuery ?? "")
-  const rowBudget = () => Math.max(1, Math.min(10, dimensions().height - 14))
+  const rowBudget = () => Math.max(1, Math.min(10, dimensions().height - (props.preview ? 17 : 14)))
   const items = createMemo(() => {
     if (props.searchItems) return props.searchItems(query())
     if (!props.searchable || !query()) return props.items
@@ -500,14 +501,14 @@ function ListDialog(props: {
     <Modal
       title={props.title}
       width={78}
-      height={Math.max(10, Math.min(items().length, rowBudget()) + 10)}
+      height={Math.max(10, Math.min(items().length, rowBudget()) + (props.preview ? 13 : 10))}
       scrollable={false}
       escapeCloses={props.onDismiss ? false : undefined}
       onDismiss={props.onDismiss}
     >
       <box flexDirection="column" flexGrow={1} minHeight={0} width="100%">
         <Show when={props.searchable} fallback={null}>
-          <text fg={theme.accentAlt} bg={theme.panelAlt} paddingX={1}>{`filter: ${query()}`}</text>
+          <text fg={theme.text} bg={theme.panelAlt} paddingX={1}>{`filter: ${query()}`}</text>
         </Show>
         <Show when={items().length === 0} fallback={null}>
           <text fg={theme.dim}>
@@ -532,7 +533,7 @@ function ListDialog(props: {
                 </text>
               </box>
               <Show when={item.detail && showDetail()}>
-                <text fg={theme.dim} wrapMode="none">
+                <text fg={theme.muted} wrapMode="none">
                   {clipCells(item.detail ?? "", detailWidth())}
                 </text>
               </Show>
@@ -540,12 +541,15 @@ function ListDialog(props: {
           )}
         </For>
         <box flexGrow={1} />
+        <Show when={props.preview && items()[selected()]}>
+          {(item) => props.preview?.(item().value)}
+        </Show>
         <Show when={items()[selected()]?.detail}>
           <text fg={theme.muted} wrapMode="word">
             {clipCells(items()[selected()]?.detail ?? "", contentWidth() * 2 - 2)}
           </text>
         </Show>
-        <text fg={theme.dim} wrapMode="word">
+        <text fg={theme.muted} wrapMode="word">
           {`${props.searchItems && items().length ? `${selected() + 1}/${items().length} · ` : props.searchable ? "type to filter · " : ""}${props.hint ? `${props.hint} · ` : ""}↑/↓ move · PgUp/PgDn jump · Enter select · Esc close`}
         </text>
       </box>
@@ -613,6 +617,7 @@ function ThemeDialog(props: { onClose: () => void }) {
       title="theme"
       items={items()}
       initial={Math.max(0, themeNames.indexOf(store.theme().name))}
+      preview={(value) => <ThemePreview name={value} />}
       onSelect={(value) => {
         store.setTheme(value as ThemeName)
         store.notify(`Theme: ${value}`, "info")
@@ -620,6 +625,31 @@ function ThemeDialog(props: { onClose: () => void }) {
       }}
       onClose={props.onClose}
     />
+  )
+}
+
+function ThemePreview(props: { name: string }) {
+  const theme = createMemo(() => resolveTheme(props.name))
+  return (
+    <box backgroundColor={overlayBackground(theme(), "background")} paddingX={1}>
+      <text fg={theme().text} wrapMode="none">
+        Answer text
+      </text>
+      <text fg={theme().accent} bg={theme().panel} wrapMode="none">
+        › Focused prompt
+      </text>
+      <box flexDirection="row" gap={2}>
+        <text fg={theme().warning} wrapMode="none">
+          ! Permission
+        </text>
+        <text fg={theme().success} bg={theme().diffAddedBg} wrapMode="none">
+          + Added
+        </text>
+        <text fg={theme().error} wrapMode="none">
+          × Failed
+        </text>
+      </box>
+    </box>
   )
 }
 
@@ -707,11 +737,26 @@ function SessionDialog(props: { onClose: () => void }) {
   const store = useStore()
   const [showAll, setShowAll] = createSignal(false)
   const sessions = () => (showAll() ? store.sessions() : store.projectSessions())
+  const waiting = (session: Session) =>
+    session.id === store.session()?.id
+      ? Boolean(store.permission())
+      : store.sessionRunning(session) && session.metadata?.waiting_permission === true
   const items = () => [
     { label: "+ new session", detail: "start in the current project", value: "__new__" },
     ...sessions().map((session) => ({
       label: session.title ?? session.id,
-      detail: `${relativeTime(session.updated_at)} · ${session.model ?? "model?"} · ${projectName(session.cwd)}`,
+      detail: [
+        waiting(session)
+          ? "Waiting for permission"
+          : store.sessionRunning(session)
+            ? "Running"
+            : "",
+        relativeTime(session.updated_at),
+        session.model,
+        projectName(session.cwd),
+      ]
+        .filter(Boolean)
+        .join(" · "),
       value: session.id,
     })),
   ]

@@ -44,6 +44,13 @@ the search. Results show excerpts from messages, file changes, and tool
 output. Use the arrow keys to move between results and Enter to jump to
 the selected message.
 
+### Terminal appearance and diff navigation
+
+Use `/theme` and the arrow keys to preview a theme. Press Enter to apply
+it or Esc to close the picker. In an expanded diff with several hunks,
+click **prev** or **next** to jump between hunks. While those controls have
+focus, use `[` and `]` to navigate with the keyboard.
+
 Use `/timing` to inspect elapsed model, permission, tool, verification,
 checkpoint, hook and other time for the latest daemon task in the session.
 

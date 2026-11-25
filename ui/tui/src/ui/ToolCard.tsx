@@ -26,13 +26,10 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
     if (props.tool.name === "bash" || summary.startsWith("$")) return summary
     return `${displayName()}  ${summary}`
   }
-  const labelWidth = () =>
-    Math.max(
-      20,
-      dimensions().width -
-        (store.todos().length > 0 && !store.todosHidden() && dimensions().width >= 100 ? 35 : 0) -
-        12,
-    )
+  const sidebarWidth = () =>
+    store.todos().length > 0 && !store.todosHidden() && dimensions().width >= 100 ? 35 : 0
+  const labelWidth = () => Math.max(20, dimensions().width - sidebarWidth() - 12)
+  const bodyWidth = () => Math.max(20, dimensions().width - sidebarWidth() - 10)
   const collapsedLabel = () => clipCells(label().replace(/[\r\n\t]/g, " "), labelWidth())
   const labelTruncated = () => collapsedLabel() !== label()
   const labelText = () => (expanded() ? label() : collapsedLabel())
@@ -42,8 +39,13 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
   })
   const collapsedLines = () => (dimensions().width < 78 ? 2 : COLLAPSED_LINES)
   const diffRows = createMemo(() => (props.diff ? parseUnifiedDiff(props.diff.patch).length : 0))
+  const compactOutput = () => !isWrite() && !isBash()
+  const hasError = () => props.tool.status === "error" && Boolean(props.tool.error?.trim())
   const canExpand = () =>
-    labelTruncated() || diffRows() > 4 || (!isEdit() && outputLines().length > collapsedLines())
+    labelTruncated() ||
+    diffRows() > 4 ||
+    (!isEdit() && outputLines().length > (compactOutput() ? 0 : collapsedLines())) ||
+    hasError()
   const expanded = () => store.isToolExpanded(props.tool.id)
   const toggle = () => {
     if (canExpand()) store.toggleTool(props.tool.id)
@@ -53,15 +55,14 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
     return Math.abs(event.x - down.x) <= 1 && Math.abs(event.y - down.y) <= 1
   }
   const lines = createMemo(() => {
-    if (isEdit()) return []
+    if (isEdit() || (compactOutput() && !expanded())) return []
     if (expanded()) return outputLines().slice(0, MAX_TOOL_LINES)
     return outputLines().slice(0, collapsedLines())
   })
   const statusColor = () => {
-    if (props.tool.status === "running") return theme.accentAlt
+    if (props.tool.status === "running") return theme.accent
     if (props.tool.status === "error") return theme.error
-    if (props.tool.status === "cancelled" || props.tool.status === "skipped") return theme.dim
-    return theme.success
+    return theme.muted
   }
   const duration = () => {
     const value = props.tool.durationMs
@@ -73,6 +74,12 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
     )
       return ""
     return value < 1000 ? `${Math.round(value)}ms` : `${(value / 1000).toFixed(1)}s`
+  }
+  const metadata = () => {
+    const status = props.tool.status
+    return [status === "ok" ? (expanded() ? "done" : "") : status, duration()]
+      .filter(Boolean)
+      .join(" · ")
   }
   const codeFiletype = () => (isCode() ? fileType(label()) : null)
   const syntaxSegments = (line: string) => highlightLine(line || " ", codeFiletype() ?? "text")
@@ -104,7 +111,7 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
       width="100%"
       border={["left"]}
       borderColor={props.tool.status === "error" ? theme.error : theme.border}
-      backgroundColor={theme.panel}
+      backgroundColor={expanded() || isWrite() ? theme.panel : undefined}
       paddingLeft={1}
       onMouseDown={(event) => {
         if (event.button === 0) down = { x: event.x, y: event.y }
@@ -115,8 +122,13 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
       }}
     >
       <box flexDirection="row" gap={1} minWidth={0}>
+        <Show when={canExpand() && compactOutput() && !props.diff && !labelTruncated()}>
+          <text fg={theme.muted} wrapMode="none">
+            {expanded() ? "▾" : "▸"}
+          </text>
+        </Show>
         <text
-          fg={isBash() ? theme.text : theme.tool}
+          fg={theme.text}
           wrapMode={expanded() ? "word" : "none"}
           flexGrow={1}
           flexShrink={1}
@@ -124,12 +136,12 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
         >
           {labelText()}
         </text>
+        <Show when={metadata()}>
+          <text fg={statusColor()} wrapMode="none" flexShrink={0}>
+            {metadata()}
+          </text>
+        </Show>
       </box>
-      <Show when={expanded() || (props.tool.status !== "ok" && props.tool.status !== "running")}>
-        <text fg={statusColor()} wrapMode="none">
-          {`${props.tool.status === "ok" ? "done" : props.tool.status}${duration() ? ` · ${duration()}` : ""}`}
-        </text>
-      </Show>
       <Show when={props.diff}>
         <DiffView
           patch={props.diff?.patch ?? ""}
@@ -194,7 +206,9 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
           {`… ${outputLines().length - MAX_TOOL_LINES} lines omitted (display limit ${MAX_TOOL_LINES})`}
         </text>
       </Show>
-      <Show when={canExpand()}>
+      <Show
+        when={canExpand() && (!compactOutput() || labelTruncated() || diffRows() > 4 || hasError())}
+      >
         <text fg={theme.dim} paddingLeft={1} wrapMode="none">
           {expanded()
             ? "… click to collapse"
@@ -207,7 +221,9 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
       </Show>
       <Show when={props.tool.status === "error" && props.tool.error}>
         <text fg={theme.error} wrapMode="word" paddingLeft={1}>
-          {clipLines(props.tool.error ?? "", MAX_TOOL_LINES)}
+          {expanded()
+            ? clipLines(props.tool.error ?? "", MAX_TOOL_LINES)
+            : clipCells(props.tool.error?.split(/\r?\n/)[0] ?? "", bodyWidth())}
         </text>
       </Show>
     </box>

@@ -381,14 +381,10 @@ function CodeBlockView(props: { lines: string[] }) {
   )
 }
 
-function HeadingView(props: { text: string; depth: number }) {
+function HeadingView(props: { text: string }) {
   const theme = useTheme()
   return (
-    <text
-      fg={props.depth <= 2 ? theme.accent : theme.accentAlt}
-      attributes={TextAttributes.BOLD}
-      wrapMode="word"
-    >
+    <text fg={theme.text} attributes={TextAttributes.BOLD} wrapMode="word">
       {inline(props.text, theme)}
     </text>
   )
@@ -472,10 +468,14 @@ function BlockView(props: { block: MarkdownBlock; width: number }) {
         <CodeBlockView lines={code().lines} />
       </Match>
       <Match when={props.block.kind === "heading"}>
-        <HeadingView text={heading().text} depth={heading().depth} />
+        <box width="100%" maxWidth={84}>
+          <HeadingView text={heading().text} />
+        </box>
       </Match>
       <Match when={props.block.kind === "line"}>
-        <LineView text={line().text} code={line().code} width={props.width} />
+        <box width="100%" maxWidth={84}>
+          <LineView text={line().text} code={line().code} width={Math.min(84, props.width)} />
+        </box>
       </Match>
     </Switch>
   )

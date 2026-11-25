@@ -139,3 +139,74 @@ test("collapsed long diffs still show changed rows with backgrounds", async () =
     setup.renderer.destroy()
   }
 })
+
+test("expanded diffs navigate hunks without closing the patch", async () => {
+  const store = new TuiStore()
+  const theme = baseTheme("siwah-dark")
+  store.theme(theme)
+  setActiveStore(store)
+  setActiveTheme(theme)
+  const setup = await testRender(
+    () => (
+      <scrollbox id="patch-scroll" width="100%" height="100%">
+        <DiffView
+          path="parser.ts"
+          expanded
+          patch={"@@ -1 +1 @@\n-old one\n+new one\n@@ -7 +7 @@\n-old two\n+new two"}
+        />
+      </scrollbox>
+    ),
+    { width: 90, height: 24 },
+  )
+  try {
+    await setup.renderOnce()
+    const initial = setup.captureCharFrame().split("\n")
+    const y = initial.findIndex((line) => line.includes("Hunk 1/2"))
+    expect(y).toBeGreaterThanOrEqual(0)
+    await setup.mockMouse.click(initial[y].indexOf("] next") + 1, y)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Hunk 2/2")
+    setup.mockInput.pressKey("[")
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Hunk 1/2")
+    expect(setup.captureCharFrame()).toContain("+ new two")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("expanded split diffs navigate hunks", async () => {
+  const store = new TuiStore()
+  const theme = baseTheme("siwah-dark")
+  store.theme(theme)
+  setActiveStore(store)
+  setActiveTheme(theme)
+  const setup = await testRender(
+    () => (
+      <scrollbox id="patch-scroll" width="100%" height="100%">
+        <DiffView
+          path="parser.ts"
+          expanded
+          patch={"@@ -1 +1 @@\n-old one\n+new one\n@@ -7 +7 @@\n-old two\n+new two"}
+        />
+      </scrollbox>
+    ),
+    { width: 140, height: 24 },
+  )
+  try {
+    await setup.renderOnce()
+    const initial = setup.captureCharFrame()
+    expect(initial).toContain("split")
+    const lines = initial.split("\n")
+    const y = lines.findIndex((line) => line.includes("Hunk 1/2"))
+    expect(y).toBeGreaterThanOrEqual(0)
+    await setup.mockMouse.click(lines[y].indexOf("] next") + 1, y)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Hunk 2/2")
+    setup.mockInput.pressKey("[")
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Hunk 1/2")
+  } finally {
+    setup.renderer.destroy()
+  }
+})

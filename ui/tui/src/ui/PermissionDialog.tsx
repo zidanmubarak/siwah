@@ -100,9 +100,12 @@ export function PermissionDialog() {
             <text fg={theme.warning} attributes={TextAttributes.BOLD}>
               {"! permission required"}
             </text>
-            <text fg={theme.dim}>{request().tool}</text>
+            <text fg={theme.text} flexGrow={1} minWidth={0} wrapMode="none">
+              {request().tool}
+            </text>
             <text
-              fg={theme.accentAlt}
+              fg={theme.text}
+              flexShrink={0}
               wrapMode="none"
               onMouseDown={() =>
                 store.openDialog({
@@ -131,8 +134,9 @@ export function PermissionDialog() {
                 <For each={choices.filter((choice) => request().choices.includes(choice.value))}>
                   {(choice) => (
                     <text
-                      fg={choice.value === "deny" ? theme.error : theme.accentAlt}
+                      fg={choice.value === "deny" ? theme.error : theme.text}
                       bg={theme.panelAlt}
+                      wrapMode="none"
                       onMouseDown={() => choose(choice.value)}
                     >
                       {` [${choice.key}] ${choice.label} `}

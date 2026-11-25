@@ -144,6 +144,9 @@ class DaemonRuntime:
         task = self._tasks.get(session_id)
         return task is not None and not task.done()
 
+    def is_waiting_permission(self, session_id: str) -> bool:
+        return session_id in self._waiter_sessions.values()
+
     def list_sessions(self, limit: int = 50) -> list[Session]:
         return self.store.list_sessions(limit=limit)
 
