@@ -26,11 +26,11 @@ exports[`welcome screen snapshot and status bar: welcome-100x32 1`] = `
                                                                                                     
                                                                                                     
   ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
-  │ › build ask                                            ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │ › build ask                                  ctx 2k/100k 2% · 1.5k tok · $0.000429 allowance │  
   │                                                                                              │  
   │ Ask siwah to change something…                                                               │  
   │ Enter send · Shift+Enter newline                                                             │  
-  │ mock/model-a off                                                               D:/work/siwah │  
+  │ mock/model-a auto                                                              D:/work/siwah │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                     
 "
@@ -64,11 +64,11 @@ exports[`transcript, tool card and diff snapshot: transcript-120x34 1`] = `
                                                                                       │                                 
                                                                                       │                                 
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
-  │ › build ask                                                                ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │ › build ask                                                      ctx 2k/100k 2% · 1.5k tok · $0.000429 allowance │  
   │                                                                                                                  │  
   │ Ask siwah to change something…                                                                                   │  
   │ Enter send · Shift+Enter newline                                                                                 │  
-  │ mock/model-a off evo-0 idle                                                                        D:/work/siwah │  
+  │ mock/model-a auto evo-0 idle                                                                       D:/work/siwah │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                         
 "
@@ -98,11 +98,11 @@ exports[`permission dialog snapshot: permission-100x30 1`] = `
   └───────────────────────────────────────────────────────────────────────────────────────────────  
                                                                                                     
   ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
-  │ › build ask                                            ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │ › build ask                                  ctx 2k/100k 2% · 1.5k tok · $0.000429 allowance │  
   │                                                                                              │  
   │ Ask siwah to change something…                                                               │  
   │                                                                                              │  
-  │ mock/model-a off                                                               D:/work/siwah │  
+  │ mock/model-a auto                                                              D:/work/siwah │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
   permission required                                                                               
 "
@@ -132,11 +132,11 @@ exports[`large tool output is bounded inline: tool-inline-100x30 1`] = `
                                                                                                     
                                                                                                     
   ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
-  │ › build ask                                            ctx 2k/100k 2% · 1.5k tok · $0.000429 │  
+  │ › build ask                                  ctx 2k/100k 2% · 1.5k tok · $0.000429 allowance │  
   │                                                                                              │  
   │ Ask siwah to change something…                                                               │  
   │ Enter send · Shift+Enter newline                                                             │  
-  │ mock/model-a off                                                               D:/work/siwah │  
+  │ mock/model-a auto                                                              D:/work/siwah │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                     
 "
@@ -156,11 +156,11 @@ exports[`60-column layout stays usable: narrow-60x20 1`] = `
                                                             
   ╭──────────────────────────────────────────────────────╮  
   │ › build ask                                          │  
-  │ ctx 2k/100k 2% · 1.5k tok · $0.000429                │  
+  │ ctx 2k/100k 2% · 1.5k tok · $0.000429 allowance      │  
   │                                                      │  
   │ Ask siwah to change something…                       │  
   │                                                      │  
-  │ mock/model-a off                               siwah │  
+  │ mock/model-a auto                              siwah │  
   ╰──────────────────────────────────────────────────────╯  
                                                             
 "

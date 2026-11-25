@@ -492,6 +492,29 @@ test("successful abort waits for a final event before declaring completion", asy
   expect(store.running()).toBe(false)
 })
 
+test("abort waits for in-flight admission and coalesces repeated presses", async () => {
+  const admission = deferred<{ status: "running"; run_id: string }>()
+  let abortRequests = 0
+  const store = ready({
+    sendMessage: () => admission.promise,
+    abort: async () => {
+      abortRequests += 1
+      return { ok: true }
+    },
+  })
+  const submitted = store.sendPrompt("start working")
+  expect(store.running()).toBe(true)
+  const aborted = store.abort()
+  await store.abort()
+  expect(abortRequests).toBe(0)
+  admission.resolve({ status: "running", run_id: "run" })
+  expect(await submitted).toBe(true)
+  await aborted
+  expect(abortRequests).toBe(1)
+  event(store, 1, "run.end", { reason: "aborted" })
+  expect(store.running()).toBe(false)
+})
+
 test("duplicate event sequences and ids are applied only once", () => {
   const store = ready()
   event(store, 1, "message.start", { message_id: "m", role: "assistant" })

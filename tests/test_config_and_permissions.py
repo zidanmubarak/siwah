@@ -126,6 +126,21 @@ def test_permission_path_guard(tmp_path: Path):
     assert policy.check(PermissionRequest(tool="write_file", kind="write", preview="x")) == "ask"
 
 
+def test_provider_credentials_are_denied_inside_the_workspace(tmp_path: Path):
+    home = tmp_path / ".siwah"
+    policy = PermissionPolicy(tmp_path, PermissionsConfig(deny_paths=[]), home=home)
+    assert policy.resolve("auth.json") == tmp_path / "auth.json"
+    for path in (
+        home / "auth.json",
+        home / "chatgpt" / "auth.json",
+        home / "chatgpt" / ".auth-temporary.json",
+    ):
+        with pytest.raises(PathGuardError, match="secret-like"):
+            policy.resolve(path)
+        with pytest.raises(PathGuardError, match="secret-like"):
+            policy.resolve(path, write=True)
+
+
 def test_permission_rules_and_session_approval(tmp_path: Path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -206,6 +221,13 @@ def test_first_run_creates_default_provider_catalog(
     monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("SIWAH_CONFIG", raising=False)
     config = load_config()
-    assert set(config.providers) == {"opencode-go", "openai"}
+    assert set(config.providers) == {
+        "opencode-go",
+        "openai",
+        "openrouter",
+        "deepseek",
+        "commandcode",
+        "chatgpt",
+    }
     assert config.roles.main is None
     assert (tmp_path / "home" / "harness" / "config.toml").exists()

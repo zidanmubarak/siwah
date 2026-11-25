@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,6 +9,7 @@ import httpx
 import pytest
 from httpx import ASGITransport
 
+from siwah import update as updater
 from siwah.config import Config
 from siwah.server.app import create_app
 from siwah.update import (
@@ -108,6 +110,42 @@ def test_apply_refuses_a_dirty_checkout(tmp_path: Path, monkeypatch):
     result = apply_update(root=work, rebuild_tui=False)
     assert result.ok is False
     assert "local changes" in result.detail
+
+
+@pytest.mark.parametrize("succeeds", [True, False])
+def test_rebuild_stages_only_complete_binary(tmp_path: Path, monkeypatch, succeeds: bool):
+    tui = tmp_path / "source" / "ui" / "tui"
+    tui.mkdir(parents=True)
+    (tui / "package.json").touch()
+    home = tmp_path / "home"
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True)
+    name = "siwah-tui.exe" if os.name == "nt" else "siwah-tui"
+    active = bin_dir / name
+    staged = bin_dir / f"{name}.next"
+    active.write_bytes(b"active")
+    staged.write_bytes(b"previous stage")
+
+    def run(command, *, cwd, timeout, env=None):
+        if command[1] == "install":
+            return True, ""
+        assert env is not None
+        built = Path(env["SIWAH_TUI_OUTFILE"])
+        assert built.parent.parent == bin_dir
+        built.write_bytes(b"updated")
+        return succeeds, "build output"
+
+    monkeypatch.setenv("SIWAH_HOME", str(home))
+    monkeypatch.setattr(updater, "_find_bun", lambda _root: "bun")
+    monkeypatch.setattr(updater, "_run", run)
+
+    steps = updater._rebuild_tui(tmp_path / "source")
+
+    assert active.read_bytes() == b"active"
+    assert not (tui / "dist").exists()
+    assert sorted(bin_dir.iterdir()) == sorted([active, staged])
+    assert staged.read_bytes() == (b"updated" if succeeds else b"previous stage")
+    assert any("TUI build failed" in step for step in steps) is not succeeds
 
 
 @pytest.mark.asyncio

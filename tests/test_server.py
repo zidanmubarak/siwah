@@ -81,6 +81,50 @@ async def test_stale_running_session_is_reported_idle(config, store: Store, samp
 
 
 @pytest.mark.asyncio
+async def test_abort_acknowledges_before_cleanup_and_publishes_terminal_event(
+    config, store: Store, sample_repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    cleaning_up = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    keep_running = asyncio.Event()
+
+    async def start(*_args, **_kwargs):
+        try:
+            await keep_running.wait()
+        finally:
+            cleaning_up.set()
+            await release_cleanup.wait()
+
+    monkeypatch.setattr(runtime, "_run", start)
+    run_id, _ = runtime.start_run(session, "work")
+    task = runtime._tasks[session.id]
+    app = create_app(config, runtime=runtime, token="test-token")
+    try:
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            url = f"/v1/sessions/{session.id}/abort"
+            headers = {"Authorization": "Bearer test-token"}
+            for _ in range(2):
+                response = await asyncio.wait_for(client.post(url, headers=headers), timeout=1)
+                assert response.json() == {"ok": True}
+            await asyncio.wait_for(cleaning_up.wait(), timeout=1)
+            assert not task.done()
+            assert task.cancelling() == 1
+    finally:
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1)
+
+    events = runtime.bus(session.id).history()
+    ends = [event for event in events if event.type == "run.end"]
+    assert [(event.turn_id, event.data) for event in ends] == [(run_id, {"reason": "aborted"})]
+    assert not runtime.is_running(session.id)
+
+
+@pytest.mark.asyncio
 async def test_prompt_is_queued_while_a_run_is_active(config, store: Store, sample_repo: Path):
     runtime = await make_runtime(config, store, sample_repo)
     app = create_app(config, runtime=runtime, token="test-token")
@@ -288,12 +332,20 @@ async def test_server_auth_sessions_and_sse(config, store: Store, sample_repo: P
 
         default_providers = await client.post("/v1/providers/defaults", headers=headers)
         assert default_providers.status_code == 200
-        assert default_providers.json()["providers"][0]["provider"] == "mock"
+        assert {"mock", "openrouter", "chatgpt"} <= {
+            item["provider"] for item in default_providers.json()["providers"]
+        }
 
         auth_status = await client.get("/v1/auth/status", headers=headers)
         assert auth_status.status_code == 200
-        assert auth_status.json()["providers"][0]["provider"] == "mock"
-        assert auth_status.json()["providers"][0]["scheme"] == "none"
+        assert (
+            next(
+                item["scheme"]
+                for item in auth_status.json()["providers"]
+                if item["provider"] == "mock"
+            )
+            == "none"
+        )
         logged_in = await client.post(
             "/v1/auth/login",
             headers=headers,
@@ -301,7 +353,14 @@ async def test_server_auth_sessions_and_sse(config, store: Store, sample_repo: P
         )
         assert logged_in.status_code == 200
         auth_after = await client.get("/v1/auth/status", headers=headers)
-        assert auth_after.json()["providers"][0]["file_set"] is True
+        assert (
+            next(
+                item["file_set"]
+                for item in auth_after.json()["providers"]
+                if item["provider"] == "mock"
+            )
+            is True
+        )
 
         missing = await client.post(
             f"/v1/sessions/{session_id}/permissions/perm_missing",
@@ -355,7 +414,14 @@ async def test_provider_defaults_endpoint_creates_config(
             )
         assert response.status_code == 200
         names = {provider["provider"] for provider in response.json()["providers"]}
-        assert names == {"opencode-go", "openai"}
+        assert names == {
+            "opencode-go",
+            "openai",
+            "chatgpt",
+            "openrouter",
+            "deepseek",
+            "commandcode",
+        }
         assert (tmp_path / "home" / "harness" / "config.toml").exists()
     finally:
         await runtime.close()

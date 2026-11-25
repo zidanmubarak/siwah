@@ -13,43 +13,31 @@ import socket
 import subprocess
 import sys
 import time
+import webbrowser
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import typer
-import uvicorn
 from rich.console import Console
 from rich.table import Table
 
-from ..acp import AcpServer
-from ..adapt.best_of_n import BestOfN, BestOfNResult
-from ..adapt.engine import EvolutionEngine
-from ..adapt.level2 import Level2Evolver
-from ..adapt.models import Candidate
-from ..adapt.prober import EvalProber, ProbeError
-from ..adapt.promoter import HarnessRepository, Promoter, PromotionError
-from ..adapt.proposer import LLMProposer, ProposalError
-from ..adapt.reflector import PrivacyError, Reflector
+from ..adapt.promoter import HarnessRepository, PromotionError
 from ..adapt.state import load_state, set_paused
 from ..adapt.state import state_path as evolution_state_path
-from ..adapt.synthetic import SeedProposer, SeedReflector, seed_prober
 from ..auth import AuthError, AuthStore
 from ..config import (
     EFFORT_VALUES,
     Config,
     ConfigError,
     ModelRef,
+    add_default_providers,
     load_config,
     update_budget_config,
 )
-from ..core.loop import AgentLoop, RunResult
 from ..core.storage import Store
 from ..core.types import Message, ModelInfo, ProviderEvent
-from ..eval.mock import MOCK_MODEL
-from ..eval.report import comparison_summary, render_comparison, render_report, write_report
-from ..eval.runner import EvalRunner
 from ..harness.bootstrap import ensure_harness
 from ..harness.memory import read_memory
 from ..harness.skills import list_skills, read_skill
@@ -58,14 +46,7 @@ from ..kernel.audit import audit_event, read_events
 from ..kernel.budget import BudgetGovernor
 from ..kernel.manifest import manifest_path, verify_manifest, write_manifest
 from ..kernel.snapshot import rollback_to_tag
-from ..kernel.supervisor import (
-    Supervisor,
-    boot_daemon_once,
-    read_runtime,
-    runtime_endpoint,
-    runtime_healthy,
-    stop_daemon,
-)
+from ..kernel.supervisor import read_runtime, runtime_endpoint, runtime_healthy
 from ..maintenance import inspect_home, prune_orphans, rotate_daemon_log
 from ..mcp.client import (
     McpError,
@@ -104,6 +85,9 @@ from ..plugins import (
     set_enabled,
 )
 from ..providers.base import ProviderError
+from ..providers.chatgpt_auth import ChatGPTAuth, ChatGPTSignInPending
+from ..providers.openai_responses import supports_chatgpt_login
+from ..providers.openrouter_auth import OpenRouterLogin, supports_browser_login
 from ..providers.profiles import (
     ModelProfile,
     load_profile,
@@ -113,10 +97,6 @@ from ..providers.profiles import (
     set_privacy,
 )
 from ..providers.registry import ProviderRegistry, RoleRouter
-from ..server.app import create_app
-from ..server.runtime import DaemonRuntime
-from ..tools.base import ToolRegistry
-from ..tools.runtime import default_tools
 from ..update import apply_update, check_for_update
 from ..version import __version__
 from .plain_ui import JsonRenderer, PlainRenderer
@@ -208,6 +188,11 @@ def run(
     ui: str = typer.Option("plain", "--ui", help="plain or json."),
 ) -> None:
     """Run one task non-interactively."""
+    from ..adapt.best_of_n import BestOfN, BestOfNResult
+    from ..core.loop import AgentLoop, RunResult
+    from ..tools.base import ToolRegistry
+    from ..tools.runtime import default_tools
+
     try:
         config = load_config()
     except ConfigError as exc:
@@ -370,6 +355,11 @@ def serve(
     port: int | None = typer.Option(None, "--port"),
 ) -> None:
     """Start the daemon and local HTTP + SSE API."""
+    import uvicorn
+
+    from ..server.app import create_app
+    from ..server.runtime import DaemonRuntime
+
     try:
         config = load_config()
     except ConfigError as exc:
@@ -419,6 +409,7 @@ def serve(
 @app.command()
 def acp() -> None:
     """Serve the Agent Client Protocol over stdio."""
+    from ..acp import AcpServer
 
     try:
         config = load_config()
@@ -436,17 +427,9 @@ def acp() -> None:
 @app.command("supervise", hidden=True)
 def supervise() -> None:
     """Supervise the daemon: verify kernel, boot, and recover on failure."""
+    from .supervise import run_supervisor
 
-    supervisor = Supervisor(repo_root(), boot=boot_daemon_once)
-
-    def stop(_signum: int, _frame: object) -> None:
-        stop_daemon()
-        raise SystemExit(0)
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        with contextlib.suppress(ValueError, OSError, AttributeError):
-            signal.signal(sig, stop)
-    raise typer.Exit(supervisor.run())
+    raise typer.Exit(run_supervisor())
 
 
 @app.command()
@@ -595,6 +578,14 @@ def evolve(
     `SIWAH_EVOLVE_MAX_TOKENS` to a positive integer for an explicit cap, or to
     `none`/`0` to omit `max_tokens` and use the provider default.
     """
+    from ..adapt.engine import EvolutionEngine
+    from ..adapt.level2 import Level2Evolver
+    from ..adapt.models import Candidate
+    from ..adapt.prober import EvalProber, ProbeError
+    from ..adapt.promoter import Promoter
+    from ..adapt.proposer import LLMProposer, ProposalError
+    from ..adapt.reflector import PrivacyError, Reflector
+    from ..adapt.synthetic import SeedProposer, SeedReflector, seed_prober
 
     if action == "log":
         state = load_state()
@@ -945,14 +936,26 @@ def trace(
 
 
 @auth_app.command("login")
-def auth_login(provider: str | None = typer.Argument(None)) -> None:
-    """Store an API key for a provider."""
+def auth_login(
+    provider: str | None = typer.Argument(None),
+    api_key: bool = typer.Option(False, "--api-key", help="Use an existing API key."),
+    account: str | None = typer.Option(
+        None, "--account", help="Reconnect a saved ChatGPT account."
+    ),
+) -> None:
+    """Connect a provider using browser sign-in or an API key."""
     try:
         config = load_config()
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
         raise typer.Exit(2) from exc
     name = provider
+    if name and name not in config.providers:
+        try:
+            config = add_default_providers()
+        except (OSError, ConfigError) as exc:
+            typer.echo(f"Config error: {exc}", err=True)
+            raise typer.Exit(2) from exc
     if name is None:
         if len(config.providers) == 1:
             name = next(iter(config.providers))
@@ -962,12 +965,58 @@ def auth_login(provider: str | None = typer.Argument(None)) -> None:
     if name not in config.providers:
         typer.echo(f"Unknown provider '{name}'. Add it to {config_path()} first.", err=True)
         raise typer.Exit(2)
-    key = typer.prompt(f"API key for {name}", hide_input=True)
+    preset = config.providers[name]
+    if preset.auth.scheme == "none":
+        typer.echo(f"{name} does not require a credential.")
+        return
+    if supports_chatgpt_login(preset):
+        if api_key:
+            typer.echo("Use the openai provider for API-key authentication.", err=True)
+            raise typer.Exit(2)
+        try:
+            asyncio.run(_chatgpt_login(account))
+        except AuthError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from exc
+        typer.echo("ChatGPT account connected.")
+        return
+    if not api_key and supports_browser_login(preset):
+        login = OpenRouterLogin()
+        url = login.authorization_url()
+        typer.echo(f"Open {url} and copy the one-time code after signing in.")
+        with contextlib.suppress(OSError, webbrowser.Error):
+            webbrowser.open(url)
+        code = typer.prompt("OpenRouter sign-in code", hide_input=True)
+        try:
+            key = asyncio.run(login.exchange(code))
+        except AuthError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from exc
+    else:
+        key = typer.prompt(f"API key for {name}", hide_input=True)
     if not key.strip():
         typer.echo("Empty key; nothing saved.", err=True)
         raise typer.Exit(2)
     path = AuthStore().save_key(name, key.strip())
     typer.echo(f"Saved credential for {name} in {path}")
+
+
+async def _chatgpt_login(account: str | None) -> None:
+    auth = ChatGPTAuth()
+    try:
+        flow = await auth.begin(account)
+        typer.echo(f"Sign in with ChatGPT at {flow.url}")
+        with contextlib.suppress(OSError, webbrowser.Error):
+            await asyncio.to_thread(webbrowser.open, flow.url)
+        typer.echo("Waiting for authorization in your browser. Press Ctrl+C to cancel.")
+        while True:
+            try:
+                await auth.finish(flow.id)
+                break
+            except ChatGPTSignInPending:
+                await asyncio.sleep(0.5)
+    finally:
+        auth.close()
 
 
 @auth_app.command("status")
@@ -980,6 +1029,20 @@ def auth_status() -> None:
         raise typer.Exit(2) from exc
     store = AuthStore()
     for name, provider in config.providers.items():
+        if supports_chatgpt_login(provider):
+            accounts = ChatGPTAuth().accounts()
+            if not accounts:
+                typer.echo(f"{name}: sign in with ChatGPT to add an account")
+            for account in accounts:
+                state = (
+                    "active"
+                    if account.active
+                    else "connected"
+                    if account.connected
+                    else "signed out"
+                )
+                typer.echo(f"{name}: {account.label} ({state}) / {account.client_id}")
+            continue
         env_name = provider.auth.env
         env_set = bool(env_name and os.environ.get(env_name))
         file_set = store.configured(name)
@@ -990,8 +1053,24 @@ def auth_status() -> None:
 
 
 @auth_app.command("logout")
-def auth_logout(provider: str = typer.Argument(...)) -> None:
-    """Remove a stored API key."""
+def auth_logout(
+    provider: str = typer.Argument(...),
+    account: str | None = typer.Option(None, "--account", help="Sign out a saved ChatGPT account."),
+) -> None:
+    """Remove a stored credential or sign out of ChatGPT."""
+    preset = load_config().providers.get(provider)
+    if preset is not None and supports_chatgpt_login(preset):
+        try:
+            revoked = asyncio.run(ChatGPTAuth().sign_out(account))
+        except AuthError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from exc
+        typer.echo(
+            "Signed out."
+            if revoked
+            else "Signed out locally. Check connected apps in ChatGPT Settings."
+        )
+        return
     removed = AuthStore().delete_key(provider)
     typer.echo("Removed." if removed else "No stored key for that provider.")
 
@@ -1464,6 +1543,9 @@ def mcp_add(
     header: list[str] | None = typer.Option(
         None, "--header", help="HTTP header Name=Value; repeatable."
     ),
+    bearer_token_env_var: str | None = typer.Option(
+        None, "--bearer-token-env-var", help="Environment variable holding an HTTPS bearer token."
+    ),
     auth: str | None = typer.Option(None, "--auth", help="HTTP auth mode: none or oauth."),
     scope: list[str] | None = typer.Option(None, "--scope", help="OAuth scope; repeatable."),
     client_id: str | None = typer.Option(
@@ -1486,6 +1568,8 @@ def mcp_add(
     """Add or replace an MCP server definition."""
     ensure_harness()
     try:
+        if bearer_token_env_var is not None and not url:
+            raise McpError("--bearer-token-env-var requires --url")
         if command and url:
             raise McpError("Use --command for stdio or --url for HTTP, not both")
         if command:
@@ -1505,6 +1589,8 @@ def mcp_add(
             headers = _mcp_pairs(header, "--header")
             if headers:
                 config["headers"] = headers
+            if bearer_token_env_var is not None:
+                config["bearer_token_env_var"] = bearer_token_env_var
             if auth:
                 config["auth"] = auth
             if scope:
@@ -1821,6 +1907,9 @@ def eval_suite(
     eval_dir: Path | None = typer.Option(None, "--eval-dir", help="Eval fixture root."),
 ) -> None:
     """Run an evaluation suite and render aggregate metrics."""
+    from ..eval.mock import MOCK_MODEL
+    from ..eval.report import comparison_summary, render_comparison, render_report, write_report
+    from ..eval.runner import EvalRunner
 
     if live:
         if model is None:
@@ -2097,6 +2186,8 @@ def update(
 @app.command("openapi")
 def openapi() -> None:
     """Print the OpenAPI schema used to generate TypeScript types."""
+    from ..server.app import create_app
+
     schema = create_app(Config(), runtime=None).openapi()
     typer.echo(json.dumps(schema, indent=2, sort_keys=True))
 
@@ -2219,7 +2310,6 @@ def _promote_tui_binary() -> None:
     if not staged.is_file():
         return
     try:
-        target.unlink(missing_ok=True)
         staged.replace(target)
     except OSError:
         # Another TUI instance may still hold the executable on Windows.
@@ -2237,22 +2327,28 @@ def launch_tui(*, allow_all: bool = False) -> None:
         )
         raise typer.Exit(1)
     tui_dir = _repo_tui_dir()
-    bun = _find_bun()
-    binary = _find_tui_binary()
     source = tui_dir / "src" / "index.tsx"
-    if binary is None and (bun is None or not source.is_file()):
-        typer.echo(
-            "The TUI needs a compiled siwah-tui binary (or Bun with the TUI source). "
-            "Put it in ~/.siwah/bin/, next to the siwah executable, or set "
-            "SIWAH_TUI_BINARY. Use `siwah run ... --ui plain` when no TUI is available.",
-            err=True,
-        )
-        raise typer.Exit(1)
     daemon: subprocess.Popen[str] | None = None
     completed: subprocess.CompletedProcess[bytes] | None = None
     try:
         while True:
             _promote_tui_binary()
+            binary = _find_tui_binary()
+            if binary is not None:
+                command = [str(binary)]
+                workdir = str(Path.cwd())
+            else:
+                bun = _find_bun()
+                if bun is None or not source.is_file():
+                    typer.echo(
+                        "The TUI needs a compiled siwah-tui binary (or Bun with the TUI source). "
+                        "Put it in ~/.siwah/bin/, next to the siwah executable, or set "
+                        "SIWAH_TUI_BINARY. Use `siwah run ... --ui plain` when no TUI is available.",
+                        err=True,
+                    )
+                    raise typer.Exit(1)
+                command = [bun, "--conditions=browser", str(source)]
+                workdir = str(tui_dir)
             try:
                 server, token, daemon = _ensure_daemon()
             except RuntimeError as exc:
@@ -2262,12 +2358,6 @@ def launch_tui(*, allow_all: bool = False) -> None:
             env["SIWAH_SERVER"] = server
             env["SIWAH_TOKEN"] = token
             env.setdefault("SIWAH_WORKSPACE", str(Path.cwd()))
-            if binary is not None:
-                command = [str(binary)]
-                workdir = str(Path.cwd())
-            else:
-                command = [bun or "bun", "--conditions=browser", str(source)]
-                workdir = str(tui_dir)
             completed = subprocess.run(command, cwd=workdir, env=env)
             if completed.returncode != 75:
                 break

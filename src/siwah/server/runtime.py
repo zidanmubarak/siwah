@@ -39,6 +39,8 @@ from ..harness.memory import (
 from ..harness.skills import list_skills, read_skill
 from ..permissions.policy import Approval, PermissionPolicy, PermissionRequest
 from ..providers.base import ProviderError
+from ..providers.openai_responses import supports_chatgpt_login
+from ..providers.openrouter_auth import supports_browser_login
 from ..providers.profiles import load_profile
 from ..providers.registry import ProviderRegistry, RoleRouter
 from ..sandbox import Sandbox
@@ -286,8 +288,10 @@ class DaemonRuntime:
         self._active_run_ids[session.id] = run_id
         self._steering[run_id] = {}
         bus = self.bus(session.id)
+        ended = False
 
         async def emit(event_type: str, data: dict[str, Any]) -> None:
+            nonlocal ended
             if event_type == "run.end":
                 await self._publish_unapplied(
                     session.id, run_id, self._save_unapplied(session.id, run_id)
@@ -299,6 +303,8 @@ class DaemonRuntime:
                     "content": redact_secrets(content),
                 }
             envelope = await bus.publish(event_type, data, turn_id=run_id)
+            if event_type == "run.end":
+                ended = True
             if event_type in {
                 "message.end",
                 "tool.end",
@@ -310,9 +316,15 @@ class DaemonRuntime:
                 self._watermarks[session.id] = envelope.seq
 
         async def run() -> None:
-            if queued_prompt_id:
-                await self.publish_queue(session.id)
-            await self._run(session, content, attachments or [], emit, run_id)
+            try:
+                if queued_prompt_id:
+                    await self.publish_queue(session.id)
+                await self._run(session, content, attachments or [], emit, run_id)
+            except asyncio.CancelledError:
+                if not ended:
+                    self.store.update_session(session.id, status="idle")
+                    await emit("run.end", {"reason": "aborted"})
+                raise
 
         task = asyncio.create_task(run())
         self._tasks[session.id] = task
@@ -525,14 +537,18 @@ class DaemonRuntime:
             cleared = self._queues.pop(session_id, None)
             self._clear_queue_block(session_id)
             task = self._tasks.get(session_id)
+            active = task is not None and not task.done()
+            if task is not None and active:
+                # Give a just-created task its first tick so its cancellation
+                # handler can publish the terminal event.
+                def request_cancel() -> None:
+                    if not task.done() and not task.cancelling():
+                        task.cancel()
+
+                asyncio.get_running_loop().call_soon(request_cancel)
         if cleared:
             await self.publish_queue(session_id)
-        if task is None or task.done():
-            return False
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
-        return True
+        return active
 
     # ------------------------------------------------------------------
     # Permissions
@@ -582,6 +598,8 @@ class DaemonRuntime:
             return False
         if config.auth.scheme == "none":
             return True
+        if supports_chatgpt_login(config):
+            return self.registry.chatgpt_auth.connected()
         if config.auth.env and os.environ.get(config.auth.env):
             return True
         return self.auth.configured(provider)
@@ -590,12 +608,21 @@ class DaemonRuntime:
         """Apply a newly written config without restarting the daemon."""
 
         old_registry = self.registry
+        additive = all(
+            config.providers.get(name) == preset for name, preset in self.config.providers.items()
+        )
         self.config = config
-        self.registry = ProviderRegistry(config, self.auth)
+        if additive:
+            old_registry.config = config
+        else:
+            self.registry = ProviderRegistry(
+                config, self.auth, chatgpt_auth=old_registry.chatgpt_auth
+            )
         self.router = RoleRouter(config, self.registry)
         self.loop.config = config
         self.loop.router = self.router
-        await old_registry.aclose()
+        if not additive:
+            await old_registry.aclose()
 
     # ------------------------------------------------------------------
     # TUI support
@@ -612,9 +639,13 @@ class DaemonRuntime:
     def usage(self, session: Session) -> dict[str, Any]:
         totals = self.store.usage_totals(session.id)
         context_window = self._context_window(session.model)
-        last_input, _last_cache = self.store.last_usage_tokens(session.id)
         # OpenAI-style prompt/input tokens already include the cache-read subset.
-        context_tokens = last_input or None
+        provider, _, model = (session.model or "").partition("/")
+        context_tokens = (
+            self.store.last_context_input(session.id, provider, model)
+            if provider and model
+            else None
+        )
         context_percent = None
         if context_window and context_tokens is not None:
             context_percent = round(min(100.0, (context_tokens / context_window) * 100.0), 2)
@@ -631,6 +662,9 @@ class DaemonRuntime:
         provider, _, model_id = model.partition("/")
         if not provider or not model_id:
             return None
+        catalog_model = self.registry.cached_model(provider, model_id)
+        if catalog_model is not None and catalog_model.context_window:
+            return catalog_model.context_window
         try:
             return load_profile(provider, model_id).context_window
         except (OSError, ValueError):
@@ -1114,13 +1148,23 @@ class DaemonRuntime:
         result: list[dict[str, Any]] = []
         for name, provider in self.config.providers.items():
             env_name = provider.auth.env
+            chatgpt = supports_chatgpt_login(provider)
+            openrouter = supports_browser_login(provider)
             result.append(
                 {
                     "provider": name,
                     "scheme": provider.auth.scheme,
                     "env": env_name,
                     "env_set": bool(env_name and os.environ.get(env_name)),
-                    "file_set": self.auth.configured(name),
+                    "file_set": self.registry.chatgpt_auth.connected()
+                    if chatgpt
+                    else self.auth.configured(name),
+                    "browser_login": chatgpt or openrouter,
+                    "browser_method": "chatgpt"
+                    if chatgpt
+                    else "openrouter"
+                    if openrouter
+                    else None,
                 }
             )
         return result
@@ -1128,6 +1172,8 @@ class DaemonRuntime:
     def auth_login(self, provider: str, api_key: str) -> None:
         if provider not in self.config.providers:
             raise ValueError(f"Unknown provider: {provider}")
+        if supports_chatgpt_login(self.config.providers[provider]):
+            raise ValueError("Sign in with ChatGPT in your browser.")
         self.auth.save_key(provider, api_key)
 
     async def run_shell(

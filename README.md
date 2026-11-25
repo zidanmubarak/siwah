@@ -149,6 +149,18 @@ siwah mcp add context7 --url https://mcp.context7.com/mcp
 siwah mcp test context7
 ```
 
+To use GitHub's hosted MCP server, set `GITHUB_PAT_TOKEN` in your launch
+environment to a [GitHub personal access token](https://github.com/settings/personal-access-tokens),
+then run these commands. The hosted server requires only HTTPS access from Siwah.
+
+```bash
+siwah mcp add github --url https://api.githubcopilot.com/mcp/ --bearer-token-env-var GITHUB_PAT_TOKEN
+siwah mcp test github
+```
+
+Use `--force` on the add command to replace an existing local `github` entry.
+Relaunch Siwah from the environment with the token, then open `/mcp`.
+
 For servers that advertise OAuth, use `auth=oauth` and complete the login once:
 
 ```bash

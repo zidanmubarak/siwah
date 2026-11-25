@@ -9,6 +9,8 @@ TUI and run `/connect`, then `/models`.
 | Location | Purpose |
 |---|---|
 | `~/.siwah/harness/config.toml` | Main configuration |
+| `~/.siwah/auth.json` | Saved API keys |
+| `~/.siwah/chatgpt/auth.json` | Private ChatGPT plan account and token store |
 | `~/.siwah/config.toml` | Legacy location; migrated on first load if the harness file is absent |
 | `SIWAH_CONFIG` | Explicit config path (disables the legacy migration path) |
 | `SIWAH_HOME` | Alternate root instead of `~/.siwah` |
@@ -31,7 +33,12 @@ most other settings at startup.
 
 ## First-run file
 
-The generated file contains two provider templates and conservative defaults:
+The generated file includes presets for OpenCode Go, OpenAI API, ChatGPT
+plan access, OpenRouter, DeepSeek, and Command Code. Existing configurations
+can add missing presets with `A` in `/connect`. Siwah preserves existing
+provider definitions.
+
+For example:
 
 ```toml
 [providers.opencode-go]
@@ -55,14 +62,17 @@ cost_field = "usage.cost"
 mode = "ask"
 ```
 
-Endpoints are defaults, not model facts. Model IDs, context limits, prices, and
-reasoning capabilities come from the provider's live models endpoint.
+Siwah reads model IDs, context limits, and reasoning capabilities from the
+provider's live catalog when those fields are available. Session cost and
+allowance come from usage responses. The TUI prefixes estimated context
+tokens with `~` and shows an em dash for a missing cost. Open `/cost` for the
+reported cost and allowance separately.
 
 ## Providers
 
-A provider is configuration, not code. In 1.0.4 the implemented adapter family is
-`openai_chat`, which covers OpenAI Chat Completions-compatible endpoints.
-Other API family names are rejected at startup.
+Use `openai_chat` for Chat Completions-compatible endpoints. The ChatGPT plan
+preset uses the streaming `openai_responses` adapter against OpenAI's official
+Responses API.
 
 ```toml
 [providers.example]
@@ -80,21 +90,30 @@ connect_timeout_s = 15
 
 | Field | Default | Meaning |
 |---|---|---|
-| `api` | `openai_chat` | Adapter family. Only `openai_chat` is implemented in 1.0.4. |
-| `base_url` | required | Base URL for chat completions; trailing slashes are stripped. |
+| `api` | `openai_chat` | Adapter family. `openai_responses` is used by the ChatGPT plan preset. |
+| `base_url` | required | Inference base URL. Trailing slashes are stripped. |
 | `models_url` | `null` | Models catalog endpoint. Without it, the provider cannot be listed or probed. |
 | `auth.scheme` | `bearer` | `bearer` sends `Authorization: Bearer <key>`; `none` sends no auth. |
 | `auth.env` | `null` | Environment variable consulted before the auth file. |
+| `auth.browser` | `null` | Browser sign-in for the official OpenRouter or ChatGPT preset. |
 | `headers` | `{}` | Extra request headers. `{version}` and `{session_id}` are substituted. |
 | `stream_usage` | `true` | Request usage in the final stream chunk when supported. |
 | `cost_field` | `usage.opencode.allowance` | Dotted path to the allowance value in the usage object. |
+| `reasoning_format` | `flat` | `flat` sends `reasoning_effort`; `openrouter` sends `reasoning.effort`. |
+| `replay_reasoning` | `false` | Replay assistant `reasoning_content` for providers that require it. |
 | `max_retries` | `2` | Provider retry budget before surfacing an error. |
 | `timeout_s` | `120` | Request timeout in seconds. |
 | `connect_timeout_s` | `15` | Connection timeout in seconds. |
 
 ### Credentials
 
-Credentials are resolved in this order:
+Select ChatGPT or OpenRouter in `/connect` to authorize Siwah through a
+browser. ChatGPT and OpenAI API are separate presets. Use `OPENAI_API_KEY`
+for the OpenAI API preset. DeepSeek and Command Code require API credentials
+issued by their respective provider accounts. The Command Code preset lists
+models that support Chat Completions.
+
+API keys are resolved in this order:
 
 1. the provider's `auth.env` environment variable;
 2. the key stored in `~/.siwah/auth.json` (mode 600) by `/connect` or
@@ -160,6 +179,11 @@ reflection even if it is configured as a fallback.
       "url": "https://mcp.context7.com/mcp",
       "description": "Context7 library docs"
     },
+    "github": {
+      "transport": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "bearer_token_env_var": "GITHUB_PAT_TOKEN"
+    },
     "context7-oauth": {
       "transport": "http",
       "url": "https://mcp.context7.com/mcp/oauth",
@@ -173,6 +197,11 @@ reflection even if it is configured as a fallback.
   }
 }
 ```
+
+`bearer_token_env_var` names the environment variable for a bearer token. The
+client reads it at request time and sends it only to the configured HTTPS
+endpoint. Use this field with `auth = "none"` (the default) and leave the
+`Authorization` header unset. Set the variable before launching Siwah.
 
 `auth` is `none` (default) or `oauth`. With `oauth`, do not add a static
 `Authorization` header; run `siwah mcp auth <name>` once. Tokens are stored in

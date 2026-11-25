@@ -59,6 +59,8 @@ class PermissionPolicy:
         self.workspace = workspace.resolve()
         self.config = config
         self.home = (home or harness_dir().parent).resolve()
+        self._provider_auth = (self.home / "auth.json").resolve()
+        self._chatgpt_auth = (self.home / "chatgpt").resolve()
         self.extra_write_roots = [path.resolve() for path in (extra_write_roots or [])]
         self._session_allow: set[str] = set()
 
@@ -95,7 +97,10 @@ class PermissionPolicy:
     def is_secret(self, path: Path) -> bool:
         candidates = [path.name, str(path)]
         try:
-            relative = path.resolve().relative_to(self.workspace)
+            resolved = path.resolve()
+            if resolved == self._provider_auth or resolved.is_relative_to(self._chatgpt_auth):
+                return True
+            relative = resolved.relative_to(self.workspace)
             candidates.append(str(relative))
         except (OSError, ValueError):
             pass

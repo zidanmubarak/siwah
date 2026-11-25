@@ -20,7 +20,9 @@ from ..core.types import (
     ToolSpec,
 )
 from .base import EventSink, ProviderAdapter, ProviderError, bounded_retry_delay
+from .chatgpt_auth import ChatGPTAuth
 from .openai_chat import OpenAIChatAdapter
+from .openai_responses import OpenAIResponsesAdapter, supports_chatgpt_login
 from .profiles import load_profile
 
 MAX_TIMEOUT_ATTEMPTS = 5
@@ -34,11 +36,13 @@ class ProviderRegistry:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         record_dir: Path | None = None,
+        chatgpt_auth: ChatGPTAuth | None = None,
     ) -> None:
         self.config = config
         self.auth = auth
         self.transport = transport
         self.record_dir = record_dir
+        self.chatgpt_auth = chatgpt_auth or ChatGPTAuth(auth.path.parent / "chatgpt" / "auth.json")
         self._adapters: dict[str, ProviderAdapter] = {}
 
     def adapter(self, provider: str) -> ProviderAdapter:
@@ -47,6 +51,12 @@ class ProviderRegistry:
         provider_config = self.config.providers.get(provider)
         if provider_config is None:
             raise ConfigError(f"Unknown provider '{provider}'")
+        if supports_chatgpt_login(provider_config):
+            adapter = OpenAIResponsesAdapter(
+                provider, provider_config, self.chatgpt_auth.access_token, transport=self.transport
+            )
+            self._adapters[provider] = adapter
+            return adapter
         if provider_config.api != "openai_chat":
             raise ConfigError(
                 f"Provider '{provider}' uses '{provider_config.api}', which is not implemented "
@@ -55,7 +65,7 @@ class ProviderRegistry:
         record_path = None
         if self.record_dir is not None:
             record_path = self.record_dir / f"{provider}__{len(self._adapters)}.json"
-        adapter: ProviderAdapter = OpenAIChatAdapter(
+        adapter = OpenAIChatAdapter(
             provider,
             provider_config,
             self.auth,
@@ -67,6 +77,17 @@ class ProviderRegistry:
 
     async def list_models(self, provider: str) -> list[ModelInfo]:
         return await self.adapter(provider).list_models()
+
+    def cached_model(self, provider: str, model: str) -> ModelInfo | None:
+        adapter = self._adapters.get(provider)
+        if isinstance(adapter, (OpenAIChatAdapter, OpenAIResponsesAdapter)):
+            return adapter.cached_model(model)
+        return None
+
+    def invalidate_chatgpt_catalog(self, provider: str) -> None:
+        adapter = self._adapters.get(provider)
+        if isinstance(adapter, OpenAIResponsesAdapter):
+            adapter.clear_catalog()
 
     async def aclose(self) -> None:
         for adapter in self._adapters.values():

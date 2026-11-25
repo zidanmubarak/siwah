@@ -99,16 +99,19 @@ step "Installing the editable siwah tool"
 
 if [ "${SIWAH_SKIP_TUI:-0}" != "1" ]; then
   step "Building the TUI"
+  mkdir -p "$BIN_DIR"
+  BIN_DIR=$(CDPATH= cd -- "$BIN_DIR" && pwd)
   (
+    build_dir=$(mktemp -d "$BIN_DIR/.tui-build.XXXXXX")
+    built="$build_dir/$TUI_NAME"
+    trap 'rm -f -- "$built"; rmdir -- "$build_dir"' 0
     cd "$SOURCE/ui/tui"
     "$BUN" install --frozen-lockfile
-    "$BUN" run build
+    SIWAH_TUI_OUTFILE="$built" "$BUN" run build
+    [ -f "$built" ] || fail "TUI build did not produce $built."
+    chmod +x "$built"
+    mv -f -- "$built" "$BIN_DIR/$TUI_NAME"
   )
-  built="$SOURCE/ui/tui/dist/$TUI_NAME"
-  [ -f "$built" ] || fail "TUI build did not produce $built."
-  mkdir -p "$BIN_DIR"
-  cp "$built" "$BIN_DIR/$TUI_NAME"
-  chmod +x "$BIN_DIR/$TUI_NAME"
   printf 'TUI binary installed to %s\n' "$BIN_DIR/$TUI_NAME"
 fi
 

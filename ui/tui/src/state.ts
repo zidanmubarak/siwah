@@ -156,7 +156,12 @@ export type QueuedPrompt = {
 }
 
 type Connection = "offline" | "connecting" | "online" | "reconnecting"
-type ContextState = { window: number | null; tokens: number | null; percent: number | null }
+type ContextState = {
+  window: number | null
+  tokens: number | null
+  percent: number | null
+  estimated?: boolean
+}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 const NO_ARG = Symbol("no-arg")
@@ -302,6 +307,11 @@ export class TuiStore {
   private sessionEpoch = 0
   private sessionLoading = false
   private submitting = false
+  private pendingAdmission: {
+    sessionId: string
+    response: ReturnType<SiwahApi["sendMessage"]>
+  } | null = null
+  private readonly abortingSessions = new Set<string>()
   private readonly requestVersions = new Map<string, number>()
   private readonly seenEventIds = new Set<string>()
   private readonly decidingPermissions = new WeakSet<PermissionState>()
@@ -313,6 +323,14 @@ export class TuiStore {
     [...this.messages()].reverse().find((message) => message.role === "assistant") ?? null
   currentModel = () =>
     this.session()?.model ?? this.pendingModel() ?? this.models()?.roles?.main ?? "not configured"
+  usingChatGPTPlan = () => {
+    const provider = this.currentModel().split("/", 1)[0]
+    return (
+      this.auth()?.providers?.some(
+        (item) => item.provider === provider && item.browser_method === "chatgpt" && item.file_set,
+      ) ?? false
+    )
+  }
   currentModelInfo = () => {
     const model = this.currentModel()
     for (const provider of this.models()?.providers ?? []) {
@@ -341,25 +359,37 @@ export class TuiStore {
     const cwd = this.workspacePath()
     return this.sessions().filter((session) => !sameProject(session.cwd, cwd))
   }
-  contextSummary = (): string => {
+  private contextReading() {
     const context = this.contextState()
     const usage = this.usage()
     const info = this.currentModelInfo()
-    const window = context.window ?? usage?.context_window ?? info?.context_window ?? null
-    const tokens = context.tokens ?? usage?.context_tokens ?? null
+    const live = context.estimated !== undefined
+    const window = live
+      ? context.window
+      : (context.window ?? info?.context_window ?? usage?.context_window ?? null)
+    const tokens = live ? context.tokens : (context.tokens ?? usage?.context_tokens ?? null)
     const percent =
-      context.percent ??
-      usage?.context_percent ??
-      (window && tokens !== null ? Math.min(100, (tokens / window) * 100) : null)
-    if (!window) return "ctx —"
+      window === null
+        ? null
+        : (context.percent ??
+          (live ? null : usage?.context_percent) ??
+          (tokens !== null ? Math.min(100, (tokens / window) * 100) : null))
+    return { tokens, window, percent, estimated: context.estimated }
+  }
+  contextSummary = (): string => {
+    const { tokens, window, percent, estimated } = this.contextReading()
+    const marker = estimated && tokens !== null ? "~" : ""
+    if (!window) return tokens === null ? "ctx —" : `ctx ${marker}${formatTokens(tokens)}`
     const size =
-      tokens !== null ? `${formatTokens(tokens)}/${formatTokens(window)}` : formatTokens(window)
+      tokens !== null
+        ? `${marker}${formatTokens(tokens)}/${formatTokens(window)}`
+        : formatTokens(window)
     const share = percent !== null ? ` ${Math.round(percent)}%` : ""
     const compact = percent !== null && percent >= 95 ? " · compact" : ""
     return `ctx ${size}${share}${compact}`
   }
   contextTone = (): string => {
-    const percent = this.contextState().percent ?? this.usage()?.context_percent ?? 0
+    const percent = this.contextReading().percent ?? 0
     if (percent >= 95) return this.theme().error
     if (percent >= 80) return this.theme().warning
     return this.theme().dim
@@ -367,7 +397,17 @@ export class TuiStore {
   usageSummary = (): string => {
     const usage = this.usage()
     const total = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0)
-    return `${formatTokens(total)} tok · ${formatAllowance(usage?.allowance)}`
+    const hasCost = (usage?.cost_steps ?? 0) > 0 || (usage?.cost ?? 0) > 0
+    const hasAllowance = (usage?.allowance_steps ?? 0) > 0 || (usage?.allowance ?? 0) > 0
+    const allowance = usage?.allowance ?? 0
+    const cost = usage?.cost ?? 0
+    const billing =
+      hasAllowance && (allowance !== cost || !hasCost)
+        ? `${formatAllowance(allowance)} allowance`
+        : hasCost
+          ? formatAllowance(cost)
+          : "cost —"
+    return `${formatTokens(total)} tok · ${billing}`
   }
   currentMode = () => (this.session()?.mode as "build" | "plan" | undefined) ?? this.pendingMode()
   effort = (): string | null => {
@@ -380,7 +420,6 @@ export class TuiStore {
     const info = this.currentModelInfo()
     const supported = (info?.efforts ?? []).filter((value) => value !== "none")
     if (supported.length > 0) return ["off", ...supported] as Effort[]
-    if (info?.supports_reasoning) return ["off", "low", "medium", "high"]
     return ["off"]
   }
   workspacePath = () => this.session()?.cwd ?? process.env.SIWAH_WORKSPACE ?? process.cwd()
@@ -653,12 +692,42 @@ export class TuiStore {
   async login(provider: string, apiKey: string): Promise<void> {
     if (!this.api) throw new Error("daemon unavailable")
     await this.api.authLogin(provider, apiKey)
+    await this.refreshConnectedProvider(provider)
+  }
+
+  async startBrowserLogin(provider: string, clientId?: string) {
+    if (!this.api) throw new Error("daemon unavailable")
+    return this.api.startBrowserLogin(provider, clientId)
+  }
+
+  async finishBrowserLogin(provider: string, flowId: string, code?: string): Promise<void> {
+    if (!this.api) throw new Error("daemon unavailable")
+    await this.api.finishBrowserLogin(provider, flowId, code)
+    await this.refreshConnectedProvider(provider)
+  }
+
+  async chatGPTAccounts() {
+    if (!this.api) throw new Error("daemon unavailable")
+    const response = await this.api.chatGPTAccounts()
+    return response.accounts
+  }
+
+  async chatGPTSignOut(clientId: string) {
+    if (!this.api) throw new Error("daemon unavailable")
+    const response = await this.api.chatGPTSignOut(clientId)
     await this.reloadAuth()
     await this.reloadModels()
+    return response.revoked
+  }
+
+  private async refreshConnectedProvider(provider: string): Promise<void> {
+    await this.reloadAuth()
+    await this.reloadModels()
+    const catalog = this.models()?.providers?.find((item) => item.provider === provider)
+    if (catalog?.error) throw new Error(catalog.error)
     if (!this.session()) {
-      const first = this.models()?.providers?.find((item) => item.provider === provider)
-        ?.models?.[0]
-      if (first) this.pendingModel(`${provider}/${first.id}`)
+      const first = pickChatModel(provider, catalog?.models ?? [])
+      if (first) this.pendingModel(first)
     }
   }
 
@@ -1158,11 +1227,13 @@ export class TuiStore {
         this.startStream(session.id)
       }
       try {
-        const response = await this.api.sendMessage(
+        const admission = this.api.sendMessage(
           session.id,
           prompt,
           images.map(({ mime, data, name }) => ({ mime, data, name })),
         )
+        if (!queued) this.pendingAdmission = { sessionId: session.id, response: admission }
+        const response = await admission
         if (!current()) return false
         if (response.status === "queued" && this.queueEventSeq >= 0) {
           this.messages((current) => current.filter((message) => message.id !== localId))
@@ -1189,6 +1260,7 @@ export class TuiStore {
         return false
       }
     } finally {
+      if (!queued) this.pendingAdmission = null
       this.submitting = false
     }
   }
@@ -1308,16 +1380,21 @@ export class TuiStore {
 
   async abort(): Promise<void> {
     const session = this.session()
-    if (!this.api || !session) return
+    if (!this.api || !session || this.abortingSessions.has(session.id)) return
     const current = this.scope()
+    this.abortingSessions.add(session.id)
+    this.notify("Cancelling run…", "warning")
     try {
+      // Esc can arrive after the local echo but before the daemon admits the run.
+      const admission = this.pendingAdmission
+      if (admission?.sessionId === session.id && !this.activeRunId()) {
+        await admission.response.catch(() => undefined)
+        if (!current() || !this.running()) return
+      }
       const result = await this.api.abort(session.id)
       if (!current() || !this.running()) return
       this.clearQueuedPrompts()
-      if (result.ok) {
-        this.notify("Cancellation requested", "warning")
-        return
-      }
+      if (result.ok) return
       // The daemon has no live task, but a persisted/streamed status can still
       // say running after a restart or lost terminal event. Clear the stale UI.
       this.running(false)
@@ -1333,6 +1410,8 @@ export class TuiStore {
       this.notify("No active run; session state cleared", "warning")
     } catch (error) {
       if (current()) this.notify(errorSuggestion(error), "error")
+    } finally {
+      this.abortingSessions.delete(session.id)
     }
   }
 
@@ -1478,6 +1557,13 @@ export class TuiStore {
       if (!current()) return
       this.session((active) => (active ? { ...active, model: session.model } : active))
       this.pendingModel(null)
+      this.contextState({ window: null, tokens: null, percent: null })
+      this.usage((usage) =>
+        usage
+          ? { ...usage, context_window: null, context_tokens: null, context_percent: null }
+          : usage,
+      )
+      void this.refreshUsage()
       const effort = this.effort()
       if (effort && !this.effortOptions().includes(effort as Effort)) {
         await this.setEffort("off")
@@ -2031,26 +2117,6 @@ export class TuiStore {
         break
       }
       case "usage": {
-        const current = this.usage() ?? {
-          input_tokens: 0,
-          output_tokens: 0,
-          reasoning_tokens: 0,
-          cache_read_tokens: 0,
-          cache_write_tokens: 0,
-          allowance: 0,
-          cost: 0,
-          list_cost: 0,
-          steps: 0,
-        }
-        this.usage({
-          ...current,
-          input_tokens: number(data.input_tokens, current.input_tokens ?? 0),
-          output_tokens: number(data.output_tokens, current.output_tokens ?? 0),
-          reasoning_tokens: number(data.reasoning_tokens, current.reasoning_tokens ?? 0),
-          cache_read_tokens: number(data.cache_read_tokens, current.cache_read_tokens ?? 0),
-          allowance: number(data.allowance, current.allowance ?? 0),
-          steps: (current.steps ?? 0) + 1,
-        })
         void this.refreshUsage()
         break
       }
@@ -2135,11 +2201,11 @@ export class TuiStore {
         break
       }
       case "context": {
-        const current = this.contextState()
         this.contextState({
-          window: typeof data.context_window === "number" ? data.context_window : current.window,
-          tokens: number(data.tokens, current.tokens ?? 0),
-          percent: typeof data.percent === "number" ? data.percent : current.percent,
+          window: typeof data.context_window === "number" ? data.context_window : null,
+          tokens: typeof data.tokens === "number" ? data.tokens : null,
+          percent: typeof data.percent === "number" ? data.percent : null,
+          estimated: data.estimated === true,
         })
         break
       }

@@ -52,4 +52,4 @@ if (!result.success) {
   process.exit(1)
 }
 
-console.log(`built dist/${outfile}`)
+console.log(`built ${result.outputs[0]?.path ?? outfile}`)

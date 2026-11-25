@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import tomllib
@@ -325,21 +326,27 @@ def _rebuild_tui(root: Path) -> list[str]:
     if not install[0]:
         return [*steps, f"TUI dependency install failed: {install[1]}"]
     steps.append("Reinstalled TUI dependencies.")
-    build = _run([bun, "run", "build"], cwd=tui, timeout=BUILD_TIMEOUT_SECONDS)
-    if not build[0]:
-        return [*steps, f"TUI build failed: {build[1]}"]
-    steps.append("Rebuilt the TUI binary.")
     name = "siwah-tui.exe" if os.name == "nt" else "siwah-tui"
-    built = tui / "dist" / name
-    target = siwah_home() / "bin" / name
+    target = siwah_home().resolve() / "bin" / name
     staged = target.with_name(f"{target.name}.next")
-    if built.is_file():
+    try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copy2(built, staged)
-            steps.append(f"Staged {staged}; it activates on the next siwah launch.")
-        except OSError as exc:
-            steps.append(f"Could not stage the TUI binary: {exc}")
+        with tempfile.TemporaryDirectory(prefix=".tui-build-", dir=target.parent) as tmp:
+            built = Path(tmp) / name
+            build = _run(
+                [bun, "run", "build"],
+                cwd=tui,
+                timeout=BUILD_TIMEOUT_SECONDS,
+                env={**os.environ, "SIWAH_TUI_OUTFILE": str(built)},
+            )
+            if not build[0]:
+                return [*steps, f"TUI build failed: {build[1]}"]
+            if not built.is_file():
+                return [*steps, "TUI build did not produce an executable."]
+            built.replace(staged)
+    except OSError as exc:
+        return [*steps, f"Could not stage the TUI binary: {exc}"]
+    steps.extend(("Rebuilt the TUI binary.", f"Staged {staged}; it activates on the next launch."))
     return steps
 
 
@@ -354,7 +361,9 @@ def _find_bun(root: Path) -> str | None:
     return None
 
 
-def _run(command: list[str], *, cwd: Path, timeout: int) -> tuple[bool, str]:
+def _run(
+    command: list[str], *, cwd: Path, timeout: int, env: dict[str, str] | None = None
+) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             command,
@@ -364,6 +373,7 @@ def _run(command: list[str], *, cwd: Path, timeout: int) -> tuple[bool, str]:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            env=env,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)

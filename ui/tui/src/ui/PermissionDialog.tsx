@@ -2,10 +2,11 @@ import { TextAttributes } from "@opentui/core"
 import { useKeyboard, usePaste } from "@opentui/solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import type { PermissionChoice } from "../api/client"
+import { bindingMatches } from "../commands"
 import { clipCells, clipLines } from "../util"
 import { useDimensions, useStore, useTheme } from "./context"
 
-export function PermissionDialog() {
+export function PermissionDialog(props: { cancelKey: string }) {
   const store = useStore()
   const theme = useTheme()
   const dimensions = useDimensions()
@@ -32,6 +33,7 @@ export function PermissionDialog() {
   })
   useKeyboard((key) => {
     if (!permission() || store.dialog()) return
+    if (store.running() && bindingMatches(key, props.cancelKey)) return
     // A modified shortcut is never an approval alias (Ctrl+O is tool output).
     if (key.ctrl || key.meta || (key.shift && !denying())) return
     const name = key.name.toLowerCase()
@@ -150,7 +152,11 @@ export function PermissionDialog() {
               fg={theme.text}
               wrapMode="word"
             >{`Reason: ${clipCells(reason(), Math.max(10, dimensions().width - 18), true) || "(optional; type here)"}`}</text>
-            <text fg={theme.dim}>{"Enter deny · Esc back"}</text>
+            <text fg={theme.dim}>
+              {store.running() && props.cancelKey === "escape"
+                ? "Enter deny · Esc cancel run"
+                : "Enter deny · Esc back"}
+            </text>
           </Show>
         </box>
       )}

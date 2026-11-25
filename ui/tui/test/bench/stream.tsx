@@ -4,6 +4,7 @@
  * Run with `bun run bench` (the script uses --conditions=browser).
  */
 
+import { LinearScrollAccel, ScrollBoxRenderable } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 
 import type { Session } from "../../src/api/client"
@@ -166,6 +167,36 @@ store.messages((current) => current.map((message) => ({ ...message, streaming: f
 await setup.renderOnce()
 const longCompletionMs = performance.now() - completionStart
 
+const finishedMessage = store.messages()[0]
+const historyTurns = 250
+store.messages(
+  Array.from({ length: historyTurns }, (_, turn) => ({
+    ...finishedMessage,
+    id: `history-${turn}`,
+    content: `Turn ${turn + 1}\n\n${streamText}`,
+  })),
+)
+await setup.renderOnce()
+const transcript = setup.renderer.root.findDescendantById("transcript")
+if (!(transcript instanceof ScrollBoxRenderable)) throw new Error("Transcript was not rendered")
+async function measureScroll(box: ScrollBoxRenderable) {
+  box.scrollTo(Infinity)
+  await setup.renderOnce()
+  const start = box.scrollTop
+  const times: number[] = []
+  for (let frame = 0; frame < 60; frame += 1) {
+    const before = performance.now()
+    await setup.mockMouse.scroll(5, 5, "up")
+    await setup.renderOnce()
+    times.push(performance.now() - before)
+  }
+  return { rows: start - box.scrollTop, p95Ms: Math.round(percentile(times, 95) * 100) / 100 }
+}
+const scroll = await measureScroll(transcript)
+transcript.scrollAcceleration = new LinearScrollAccel()
+const linearScroll = await measureScroll(transcript)
+if (scroll.rows <= linearScroll.rows) throw new Error("Transcript scroll did not accelerate")
+
 const result = {
   measurement: "virtual-buffer rendering only; character chunks are not model tokens",
   screen: "120x34 -> 60x20",
@@ -190,6 +221,9 @@ const result = {
   longAnswerScreen: "60x20",
   longAnswerP95Ms: Math.round(percentile(longUpdateTimes, 95) * 1000) / 1000,
   longCompletionMs: Math.round(longCompletionMs * 100) / 100,
+  historyTurns,
+  scroll,
+  linearScroll,
   chunks,
 }
 

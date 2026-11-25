@@ -37,6 +37,10 @@ If a task ends before a correction is applied, the transcript marks it as
 unapplied. Select the correction in `/pending` to edit it or send it as a
 separate follow-up.
 
+Press Esc to cancel an active task and clear its queued prompts. This also
+works while an inline picker or tool permission prompt has focus. Your prompt
+draft stays in the editor.
+
 ### Find text in the current session
 
 Use `/find` to search the current transcript, or `/find <text>` to prefill
@@ -343,16 +347,21 @@ file when you need an SDK contract snapshot.
 ## `auth`
 
 ```text
-siwah auth login [PROVIDER]
+siwah auth login [PROVIDER] [--api-key] [--account CLIENT_ID]
 siwah auth status
-siwah auth logout PROVIDER
+siwah auth logout PROVIDER [--account CLIENT_ID]
 ```
 
-- `login` prompts for the provider if omitted and reads the key with hidden
-  input. The key is stored in `~/.siwah/auth.json`.
-- `status` shows whether each provider's environment variable and auth-file
-  credential are set. It never prints a secret.
-- `logout` removes a stored key.
+- `siwah auth login chatgpt` opens ChatGPT in a browser. Eligible requests
+  use the authorized ChatGPT plan or credit balance. Run this on the same
+  machine as the browser so the loopback callback can reach Siwah.
+  Use `--account CLIENT_ID` to reconnect a saved account; `auth status` lists it.
+- `siwah auth login openrouter` opens OpenRouter in a browser. Paste the
+  one-time authorization code into Siwah when prompted. Use `--api-key` to
+  supply an existing OpenRouter key instead.
+- `login` uses hidden input for providers that require API keys. `status`
+  shows which credentials are available. `logout` removes the stored
+  credential or signs out of ChatGPT.
 
 ## `models`
 
@@ -416,6 +425,7 @@ siwah mcp test SERVER
 | `--arg` | Extra stdio argument; repeatable. |
 | `--url` | Streamable HTTP endpoint. |
 | `--header` | HTTP header `Name=Value`; repeatable. Only with `--url`. |
+| `--bearer-token-env-var` | Environment variable holding an HTTPS bearer token. Only the variable name is stored. |
 | `--auth` | HTTP auth mode: `none` or `oauth`. |
 | `--scope` | OAuth scope; repeatable. Only with `--url --auth oauth`. |
 | `--client-id` | Pre-registered OAuth client id. |
@@ -429,11 +439,25 @@ siwah mcp test SERVER
 
 `--arg`, `--env`, and `--cwd` are only valid with `--command`. `--header` is only
 valid with `--url`. `--auth oauth` cannot be combined with a static
-`Authorization` header. `show` redacts header and environment values. `list`
+`Authorization` header. `--bearer-token-env-var` requires an HTTPS URL and cannot
+be combined with OAuth or an explicit `Authorization` header. `show` redacts
+header and environment values. `list`
 shows `auth` and `oauth` status (`missing`, `authenticated`, `refreshable`,
 `expired`, or `invalid`). `status` prints connected/error, tool count, latency,
 and OAuth status. `list --tools`, `tools`, and `test` exit 1 when a server fails
 to connect.
+
+For a hosted server that accepts a bearer token, pass the environment variable
+name. For example, set `GITHUB_PAT_TOKEN` to your GitHub personal access token
+in the environment where Siwah is started.
+
+```bash
+siwah mcp add github --url https://api.githubcopilot.com/mcp/ --bearer-token-env-var GITHUB_PAT_TOKEN
+siwah mcp test github
+```
+
+Relaunch Siwah to pick up a new token or configuration. GitHub documents this
+endpoint in its [remote setup guide](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-codex.md).
 
 For OAuth, `add` stores metadata only; the login is a separate explicit step:
 

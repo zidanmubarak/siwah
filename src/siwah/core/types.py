@@ -97,6 +97,8 @@ class Usage(BaseModel):
     cache_write_tokens: int = 0
     allowance: float = 0.0
     cost: float = 0.0
+    allowance_reported: bool = False
+    cost_reported: bool = False
     list_cost: float = 0.0
     billing_source: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)

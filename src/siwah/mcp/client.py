@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import shlex
 import time
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ from .oauth import McpAuthRequired, McpOAuthError, OAuthClient, oauth_status
 MCP_PROTOCOL_VERSION = "2025-06-18"
 MCP_CONFIG_NAME = "mcp.json"
 _MAX_PAGES = 100
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_BEARER_TOKEN = re.compile(r"[A-Za-z0-9._~+/=-]+")
 
 
 class McpError(RuntimeError):
@@ -147,6 +150,20 @@ def normalize_server(name: str, config: Any) -> dict[str, Any]:
         if auth not in {"none", "oauth"}:
             raise McpError(f"MCP server {name}: auth must be none or oauth")
         normalized["auth"] = auth
+        bearer_env = config.get("bearer_token_env_var")
+        if bearer_env is not None:
+            if not isinstance(bearer_env, str) or not _ENV_NAME.fullmatch(bearer_env):
+                raise McpError(f"MCP server {name}: bearer_token_env_var must be an env name")
+            if not url.startswith("https://"):
+                raise McpError(f"MCP server {name}: bearer_token_env_var requires HTTPS")
+            if auth == "oauth" or any(
+                key.lower() == "authorization" for key in normalized["headers"]
+            ):
+                raise McpError(
+                    f"MCP server {name}: bearer_token_env_var cannot be combined with "
+                    "OAuth or an Authorization header"
+                )
+            normalized["bearer_token_env_var"] = bearer_env
         if auth == "oauth":
             if any(key.lower() == "authorization" for key in normalized["headers"]):
                 raise McpError(
@@ -162,6 +179,8 @@ def normalize_server(name: str, config: Any) -> dict[str, Any]:
                 normalized["client_secret_env"] = str(client_secret_env).strip()
         return normalized
 
+    if config.get("bearer_token_env_var") is not None:
+        raise McpError(f"MCP server {name}: bearer_token_env_var requires an HTTP transport")
     auth = str(config.get("auth", "none")).strip().lower() or "none"
     if auth != "none":
         raise McpError(f"MCP server {name}: auth=oauth requires an HTTP transport")
@@ -359,12 +378,14 @@ class HttpMcpClient:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 30.0,
         oauth: OAuthClient | None = None,
+        bearer_token_env_var: str | None = None,
     ) -> None:
         self.url = url
         self.headers = headers or {}
         self.transport = transport
         self.timeout_s = timeout_s
         self.oauth = oauth
+        self.bearer_token_env_var = bearer_token_env_var
         self.protocol_version = MCP_PROTOCOL_VERSION
         self._id = 0
         self._session_id: str | None = None
@@ -413,6 +434,15 @@ class HttpMcpClient:
             except (McpAuthRequired, McpOAuthError) as exc:
                 raise McpError(str(exc)) from exc
             headers["Authorization"] = f"Bearer {token}"
+        if self.bearer_token_env_var is not None:
+            token = os.environ.get(self.bearer_token_env_var)
+            if not token:
+                raise McpError(
+                    f"Set {self.bearer_token_env_var} in the environment before starting Siwah"
+                )
+            if not _BEARER_TOKEN.fullmatch(token):
+                raise McpError(f"Invalid bearer token in {self.bearer_token_env_var}")
+            headers["Authorization"] = f"Bearer {token}"
         if self._session_id:
             headers["Mcp-Session-Id"] = self._session_id
         if self._initialized:
@@ -431,6 +461,11 @@ class HttpMcpClient:
             except (McpAuthRequired, McpOAuthError) as exc:
                 raise McpError(str(exc)) from exc
             return await self._post(payload, retried=True)
+        if response.status_code in {401, 403} and self.bearer_token_env_var is not None:
+            raise McpError(
+                f"MCP HTTP {response.status_code}: check the token in "
+                f"{self.bearer_token_env_var} and its permissions"
+            )
         session_id = response.headers.get("Mcp-Session-Id")
         if session_id:
             self._session_id = session_id
@@ -617,7 +652,7 @@ class McpManager:
                     transport=str(config["transport"]),
                     description=str(config.get("description", "")),
                     enabled=bool(config.get("enabled", True)),
-                    auth=str(config.get("auth", "none")),
+                    auth="bearer" if "bearer_token_env_var" in config else config["auth"],
                 )
             )
         return infos
@@ -719,6 +754,7 @@ class McpManager:
                 headers=config.get("headers") or {},
                 timeout_s=float(config.get("timeout_s", 30.0)),
                 oauth=oauth,
+                bearer_token_env_var=config.get("bearer_token_env_var"),
             )
         else:
             client = StdioMcpClient(

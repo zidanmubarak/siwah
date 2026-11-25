@@ -5,11 +5,25 @@ Changelog, and the project uses semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Configure remote MCP servers with a bearer token from an environment variable.
+- Connect OpenRouter and eligible ChatGPT accounts through browser sign-in.
+- Add provider presets and model discovery for DeepSeek and Command Code.
+
 ### Changed
 
 - Refine terminal layout, focus, tool cards, permission panels, and session tabs.
 - Use the available transcript width and give inline Markdown code a text-only accent.
 - Preview theme colors in `/theme` and navigate hunks in expanded diffs.
+- Accelerate mouse and trackpad scrolling through long transcripts.
+- Build source installs and updates directly into the managed TUI binary directory.
+- Start the daemon supervisor through a lightweight CLI entry point.
+- Use provider-reported usage, cost, and model-specific reasoning options where available.
+
+### Fixed
+
+- Cancel active runs from the composer and permission prompt without waiting for daemon cleanup.
 
 ## [1.0.4] — 2026-11-25
 

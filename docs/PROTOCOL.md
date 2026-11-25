@@ -98,7 +98,11 @@ supervisor and the request carries `X-Siwah-Challenge`, the response includes
 | `POST` | `/v1/agent/effort` | Persist the default reasoning effort |
 | `GET` | `/v1/auth/status` | Credential presence, never values |
 | `POST` | `/v1/auth/login` | Store a provider key |
-| `POST` | `/v1/providers/defaults` | Create first-run provider config and reload |
+| `POST` | `/v1/auth/browser/{provider}` | Start ChatGPT or OpenRouter browser sign-in |
+| `POST` | `/v1/auth/browser/{provider}/complete` | Finish browser sign-in |
+| `GET` | `/v1/auth/chatgpt/accounts` | List saved ChatGPT accounts, never tokens |
+| `POST` | `/v1/auth/chatgpt/sign-out` | Sign out a saved ChatGPT account |
+| `POST` | `/v1/providers/defaults` | Add missing built-in provider presets and reload |
 | `GET` | `/v1/mcp` | MCP server status |
 | `POST` | `/v1/mcp/{name}/restart` | Restart one MCP server |
 | `GET` | `/v1/evolution` | Evolution timeline and status |
@@ -123,9 +127,9 @@ Notes:
   A provider that fails includes an `error` field instead of failing the whole
   catalog. A provider with no credential is reported as missing without a
   network request.
-- `POST /v1/providers/defaults` writes the default config when the provider map
-  is empty and the default config path is missing, then reloads the registry. It
-  is idempotent when providers already exist.
+- `POST /v1/providers/defaults` appends missing built-in provider presets to the
+  config without replacing existing provider tables, then reloads the registry.
+  It is safe to call when providers already exist.
 - `/v1/update` reads the version from `pyproject.toml` on the checkout's upstream
   branch and falls back to semver tags. It caches a successful check for six
   hours. `POST` refuses a dirty checkout, performs `git merge --ff-only`,
@@ -175,9 +179,9 @@ uses the sequence number. `seq` is monotonic per session.
 | `permission.resolved` | `{request_id, decision, reason?}` |
 | `diff` | `{path, patch, view_hint}` |
 | `todo.update` | `{items: [{id, text, state}]}` |
-| `usage` | `{step_id, model, input, output, reasoning, cache_read, allowance, billing_source}` |
+| `usage` | `{step_id, model, input, output, reasoning, cache_read, allowance, cost?, allowance_reported?, cost_reported?, billing_source}` |
 | `checkpoint` | `{id, label?, commit, created_at}` |
-| `context` | `{tokens, percent, context_window, pruned, compacted}` |
+| `context` | `{tokens, percent, context_window, estimated?, pruned, compacted}` |
 | `verifier` | `{status, verdict?, summary?, attempt?, new_failures?}` |
 | `plan` | `{path, content}` |
 | `evolution.event` | `{kind, candidate_id?, tag?, score?, status}` |
@@ -259,9 +263,10 @@ headers are never included in error details.
 
 ## 9. Cancellation and lifecycle
 
-- `POST /abort` is cooperative: the server stops scheduling new steps, cancels
-  the active provider stream, flushes a final `run.end` with
-  `reason = "aborted"`, and leaves the session resumable.
+- `POST /abort` clears queued prompts and immediately acknowledges that the
+  active task was asked to cancel. The SSE `run.end` with
+  `reason = "aborted"` confirms the stop after active tool or stream cleanup.
+  Session-end hooks may still finish under the daemon's workspace guard.
 - Closing an SSE connection does not abort the run. The run continues and the
   client can resume from the last event ID.
 - Daemon shutdown aborts active runs, persists their state, and emits an audit

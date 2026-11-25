@@ -6,7 +6,10 @@ import asyncio
 import contextlib
 import hashlib
 import hmac
+import secrets
 import subprocess
+import time
+import webbrowser
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -17,14 +20,18 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..adapt.promoter import HarnessRepository
 from ..adapt.state import is_paused, load_state, set_paused
+from ..auth import AuthError
 from ..commands import list_commands_for
-from ..config import Config, ConfigError, ensure_default_config, load_config
+from ..config import Config, ConfigError, add_default_providers, load_config
 from ..core.storage import Session
 from ..core.types import MessageAttachment as CoreMessageAttachment
 from ..core.types import ModelInfo
 from ..kernel.audit import audit_event, read_events
 from ..paths import harness_dir
 from ..providers.base import ProviderError
+from ..providers.chatgpt_auth import ChatGPTSignInPending
+from ..providers.openai_responses import supports_chatgpt_login
+from ..providers.openrouter_auth import OpenRouterLogin, supports_browser_login
 from ..update import apply_update, check_for_update
 from ..version import __version__
 from .auth import require_token
@@ -37,11 +44,17 @@ from .runtime import (
     ShellPermissionRequired,
 )
 from .schema import (
+    AuthBrowserFinishRequest,
+    AuthBrowserStartRequest,
+    AuthBrowserStartResponse,
     AuthLoginRequest,
     AuthProviderStatus,
     AuthStatusResponse,
     Capabilities,
     ChangesResponse,
+    ChatGPTAccount,
+    ChatGPTAccountsResponse,
+    ChatGPTSignOutResponse,
     CheckpointCreateRequest,
     CheckpointListResponse,
     CheckpointSummary,
@@ -110,11 +123,13 @@ def create_app(
     nonce: str = "",
 ) -> FastAPI:
     config = config or (runtime.config if runtime else load_config())
+    browser_logins: dict[str, tuple[str, OpenRouterLogin]] = {}
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         yield
         if runtime is not None:
+            runtime.registry.chatgpt_auth.close()
             await runtime.close()
 
     app = FastAPI(
@@ -560,24 +575,16 @@ def create_app(
     )
     async def provider_defaults() -> AuthStatusResponse:
         daemon = require_runtime()
-        if not daemon.config.providers:
-            try:
-                ensure_default_config()
-                new_config = load_config()
-            except (OSError, ConfigError) as exc:
-                raise HTTPException(
-                    500,
-                    detail={"code": "config_write_failed", "message": str(exc)},
-                ) from exc
-            if not new_config.providers:
-                raise HTTPException(
-                    409,
-                    detail={
-                        "code": "providers_empty",
-                        "message": "No providers in config; add one manually or restart siwah",
-                    },
-                )
-            await daemon.reload_config(new_config)
+        try:
+            new_config = add_default_providers()
+        except (OSError, ConfigError) as exc:
+            raise HTTPException(
+                500,
+                detail={"code": "config_write_failed", "message": str(exc)},
+            ) from exc
+        providers = {**new_config.providers, **daemon.config.providers}
+        if providers != daemon.config.providers:
+            await daemon.reload_config(daemon.config.model_copy(update={"providers": providers}))
         return AuthStatusResponse(
             providers=[AuthProviderStatus.model_validate(item) for item in daemon.auth_status()]
         )
@@ -595,6 +602,117 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(400, detail={"code": "auth_error", "message": str(exc)}) from exc
         return OkResponse()
+
+    @app.post(
+        "/v1/auth/browser/{provider}",
+        response_model=AuthBrowserStartResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def start_browser_login(
+        provider: str, body: AuthBrowserStartRequest | None = None
+    ) -> AuthBrowserStartResponse:
+        daemon = require_runtime()
+        preset = daemon.config.providers.get(provider)
+        if preset is not None and supports_chatgpt_login(preset):
+            try:
+                flow = await daemon.registry.chatgpt_auth.begin(body.client_id if body else None)
+            except AuthError as exc:
+                raise HTTPException(
+                    400, detail={"code": "auth_error", "message": str(exc)}
+                ) from exc
+            with contextlib.suppress(OSError, webbrowser.Error):
+                await asyncio.to_thread(webbrowser.open, flow.url)
+            return AuthBrowserStartResponse(flow_id=flow.id, url=flow.url)
+        if preset is None or not supports_browser_login(preset):
+            raise HTTPException(
+                400, detail={"code": "auth_error", "message": "Browser sign-in unavailable."}
+            )
+        for flow_id, (_, pending) in list(browser_logins.items()):
+            if pending.expires_at <= time.monotonic():
+                browser_logins.pop(flow_id)
+        if len(browser_logins) >= 10:
+            raise HTTPException(
+                429, detail={"code": "auth_error", "message": "Too many pending sign-ins."}
+            )
+        login = OpenRouterLogin()
+        flow_id = secrets.token_urlsafe(24)
+        browser_logins[flow_id] = (provider, login)
+        url = login.authorization_url()
+        with contextlib.suppress(OSError, webbrowser.Error):
+            await asyncio.to_thread(webbrowser.open, url)
+        return AuthBrowserStartResponse(flow_id=flow_id, url=url)
+
+    @app.post(
+        "/v1/auth/browser/{provider}/complete",
+        response_model=OkResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def finish_browser_login(provider: str, body: AuthBrowserFinishRequest) -> OkResponse:
+        daemon = require_runtime()
+        preset = daemon.config.providers.get(provider)
+        if preset is not None and supports_chatgpt_login(preset):
+            try:
+                await daemon.registry.chatgpt_auth.finish(body.flow_id)
+            except ChatGPTSignInPending as exc:
+                raise HTTPException(
+                    409, detail={"code": "auth_pending", "message": str(exc)}
+                ) from exc
+            except AuthError as exc:
+                raise HTTPException(
+                    400, detail={"code": "auth_error", "message": str(exc)}
+                ) from exc
+            daemon.registry.invalidate_chatgpt_catalog(provider)
+            return OkResponse()
+        pending = browser_logins.get(body.flow_id)
+        if (
+            preset is None
+            or not supports_browser_login(preset)
+            or pending is None
+            or pending[0] != provider
+            or not body.code
+        ):
+            raise HTTPException(
+                400, detail={"code": "auth_error", "message": "Start a new browser sign-in."}
+            )
+        browser_logins.pop(body.flow_id)
+        try:
+            key = await pending[1].exchange(body.code)
+            daemon.auth_login(provider, key)
+        except (AuthError, ValueError) as exc:
+            raise HTTPException(400, detail={"code": "auth_error", "message": str(exc)}) from exc
+        return OkResponse()
+
+    @app.get(
+        "/v1/auth/chatgpt/accounts",
+        response_model=ChatGPTAccountsResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def chatgpt_accounts() -> ChatGPTAccountsResponse:
+        return ChatGPTAccountsResponse(
+            accounts=[
+                ChatGPTAccount.model_validate(account, from_attributes=True)
+                for account in require_runtime().registry.chatgpt_auth.accounts()
+            ]
+        )
+
+    @app.post(
+        "/v1/auth/chatgpt/sign-out",
+        response_model=ChatGPTSignOutResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def chatgpt_sign_out(body: AuthBrowserStartRequest) -> ChatGPTSignOutResponse:
+        daemon = require_runtime()
+        try:
+            revoked = await daemon.registry.chatgpt_auth.sign_out(body.client_id)
+        except AuthError as exc:
+            raise HTTPException(400, detail={"code": "auth_error", "message": str(exc)}) from exc
+        for name in daemon.config.providers:
+            daemon.registry.invalidate_chatgpt_catalog(name)
+        return ChatGPTSignOutResponse(revoked=revoked)
 
     @app.post(
         "/v1/sessions/{session_id}/shell",

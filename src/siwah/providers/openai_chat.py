@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from ..auth import AuthStore
-from ..config import ProviderConfig
+from ..config import EFFORT_VALUES, ProviderConfig
 from ..core.types import (
     ChatRequest,
     ModelInfo,
@@ -55,6 +55,10 @@ class OpenAIChatAdapter(ProviderAdapter):
         )
         self._record_path = record_path
         self._allow_text_tool_calls = allow_text_tool_calls
+        self._models: dict[str, ModelInfo] = {}
+
+    def cached_model(self, model: str) -> ModelInfo | None:
+        return self._models.get(model)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -95,7 +99,12 @@ class OpenAIChatAdapter(ProviderAdapter):
                 code="models_unavailable",
                 retryable=True,
             ) from None
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ProviderError(
+                "Models response was not valid JSON", code="models_bad_response"
+            ) from None
         entries = payload.get("data") if isinstance(payload, dict) else payload
         if not isinstance(entries, list):
             raise ProviderError(
@@ -105,7 +114,14 @@ class OpenAIChatAdapter(ProviderAdapter):
         for entry in entries:
             if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
                 continue
+            endpoints = entry.get("supported_endpoints")
+            if isinstance(endpoints, list) and not any(
+                isinstance(value, str) and value.rstrip("/").endswith("/chat/completions")
+                for value in endpoints
+            ):
+                continue
             models.append(_model_info(entry))
+        self._models = {model.id: model for model in models}
         return models
 
     async def stream_chat(
@@ -126,7 +142,23 @@ class OpenAIChatAdapter(ProviderAdapter):
                 and profile.model == request.model
                 and profile.uses_text_tool_protocol
             )
-        payload = _payload(request, self.config.stream_usage, text_tool_protocol=text_tool_protocol)
+        model = self.cached_model(request.model)
+        if (
+            request.effort
+            and model
+            and (
+                model.supports_reasoning is False
+                or (model.efforts and request.effort not in model.efforts)
+            )
+        ):
+            request = request.model_copy(update={"effort": None})
+        payload = _payload(
+            request,
+            self.config.stream_usage,
+            text_tool_protocol=text_tool_protocol,
+            reasoning_format=self.config.reasoning_format,
+            replay_reasoning=self.config.replay_reasoning,
+        )
         headers = self._headers(session_id)
         secrets = _credential_values(headers)
         url = f"{self.config.base_url}/chat/completions"
@@ -287,11 +319,21 @@ class OpenAIChatAdapter(ProviderAdapter):
 
 
 def _payload(
-    request: ChatRequest, stream_usage: bool, *, text_tool_protocol: bool = False
+    request: ChatRequest,
+    stream_usage: bool,
+    *,
+    text_tool_protocol: bool = False,
+    reasoning_format: str = "flat",
+    replay_reasoning: bool = False,
 ) -> dict[str, Any]:
+    messages = [message.to_openai() for message in request.messages]
+    if replay_reasoning and request.tools:
+        for message, serialized in zip(request.messages, messages, strict=True):
+            if message.role == "assistant" and message.reasoning:
+                serialized["reasoning_content"] = message.reasoning
     payload: dict[str, Any] = {
         "model": request.model,
-        "messages": [message.to_openai() for message in request.messages],
+        "messages": messages,
         "stream": True,
     }
     if stream_usage:
@@ -303,8 +345,11 @@ def _payload(
         payload["temperature"] = request.temperature
     if request.max_tokens is not None:
         payload["max_tokens"] = request.max_tokens
-    if request.effort in {"minimal", "low", "medium", "high", "xhigh", "max"}:
-        payload["reasoning_effort"] = request.effort
+    if request.effort in EFFORT_VALUES:
+        if reasoning_format == "openrouter":
+            payload["reasoning"] = {"effort": request.effort}
+        else:
+            payload["reasoning_effort"] = request.effort
     payload.update(request.extra)
     if text_tool_protocol:
         # Apply after extras too: this endpoint does not support native tools.
@@ -419,21 +464,36 @@ def normalize_usage(raw: dict[str, Any] | None, cost_field: str) -> Usage:
     tokens_raw = opencode.get("tokens")
     tokens: dict[str, Any] = tokens_raw if isinstance(tokens_raw, dict) else {}
     prompt_raw = raw.get("prompt_tokens_details")
+    if prompt_raw is None:
+        prompt_raw = raw.get("input_tokens_details")
     prompt_details: dict[str, Any] = prompt_raw if isinstance(prompt_raw, dict) else {}
     completion_raw = raw.get("completion_tokens_details")
+    if completion_raw is None:
+        completion_raw = raw.get("output_tokens_details")
     completion_details: dict[str, Any] = completion_raw if isinstance(completion_raw, dict) else {}
-    allowance = _get_path(raw, cost_field)
+    allowance = _reported_amount(_get_path(raw, cost_field))
+    cost = _reported_amount(raw.get("cost"))
     return Usage(
-        input_tokens=_as_int(raw.get("prompt_tokens") or tokens.get("input")),
-        output_tokens=_as_int(raw.get("completion_tokens") or tokens.get("output")),
-        reasoning_tokens=_as_int(
-            completion_details.get("reasoning_tokens") or tokens.get("reasoning")
+        input_tokens=_as_int(
+            raw.get("prompt_tokens", raw.get("input_tokens", tokens.get("input")))
         ),
-        cache_read_tokens=_as_int(prompt_details.get("cached_tokens") or tokens.get("cache_read")),
+        output_tokens=_as_int(
+            raw.get("completion_tokens", raw.get("output_tokens", tokens.get("output")))
+        ),
+        reasoning_tokens=_as_int(
+            completion_details.get("reasoning_tokens", tokens.get("reasoning"))
+        ),
+        cache_read_tokens=_as_int(
+            prompt_details.get(
+                "cached_tokens", raw.get("prompt_cache_hit_tokens", tokens.get("cache_read"))
+            )
+        ),
         cache_write_tokens=_as_int(tokens.get("cache_write_5m"))
         + _as_int(tokens.get("cache_write_1h")),
-        allowance=_as_float(allowance),
-        cost=_as_float(raw.get("cost")),
+        allowance=allowance or 0.0,
+        cost=cost or 0.0,
+        allowance_reported=allowance is not None,
+        cost_reported=cost is not None,
         list_cost=_as_float(opencode.get("list_cost")),
         billing_source=opencode.get("billing_source"),
         raw=raw,
@@ -451,15 +511,17 @@ def _as_int(value: Any) -> int:
 
 
 def _as_float(value: Any) -> float:
+    return _reported_amount(value) or 0.0
+
+
+def _reported_amount(value: Any) -> float | None:
     if isinstance(value, bool):
-        return 0.0
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError):
-        return 0.0
-    if not math.isfinite(number):
-        return 0.0
-    return max(0.0, number)
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
 
 
 def _get_path(value: dict[str, Any], dotted: str) -> Any:
@@ -506,25 +568,48 @@ def _model_info(entry: dict[str, Any]) -> ModelInfo:
     tools: dict[str, Any] = tools_raw if isinstance(tools_raw, dict) else {}
     reasoning_raw = capabilities.get("reasoning")
     reasoning: dict[str, Any] = reasoning_raw if isinstance(reasoning_raw, dict) else {}
-    efforts_raw = reasoning.get("effort")
+    native_effort = entry.get("effort")
+    efforts_raw = (
+        native_effort.get("supported_levels")
+        if isinstance(native_effort, dict)
+        else reasoning.get("effort")
+    )
     efforts = (
-        [str(value) for value in efforts_raw if isinstance(value, str)]
+        [value for value in efforts_raw if value in EFFORT_VALUES]
         if isinstance(efforts_raw, list)
         else []
     )
-    pricing_raw = entry.get("cost")
+    pricing_raw = entry.get("cost", entry.get("pricing"))
     pricing: dict[str, Any] = pricing_raw if isinstance(pricing_raw, dict) else {}
     privacy_raw = entry.get("privacy")
     privacy: dict[str, Any] = privacy_raw if isinstance(privacy_raw, dict) else {}
+    top_provider = entry.get("top_provider")
+    max_completion = (
+        top_provider.get("max_completion_tokens") if isinstance(top_provider, dict) else None
+    )
+    supported_parameters = entry.get("supported_parameters")
+    supports_tools = tools.get("supported")
+    supports_reasoning = reasoning.get("supported")
+    if efforts and not isinstance(supports_reasoning, bool):
+        supports_reasoning = True
+    if isinstance(supported_parameters, list):
+        if not isinstance(supports_tools, bool):
+            supports_tools = "tools" in supported_parameters
+        if not isinstance(supports_reasoning, bool):
+            supports_reasoning = any(
+                field in supported_parameters for field in ("reasoning", "include_reasoning")
+            )
     return ModelInfo(
         id=entry["id"],
         name=entry.get("name"),
-        context_window=_int_or_none(limit.get("context")),
-        max_output=_int_or_none(limit.get("output")),
-        supports_tools=tools.get("supported") if isinstance(tools.get("supported"), bool) else None,
-        supports_reasoning=reasoning.get("supported")
-        if isinstance(reasoning.get("supported"), bool)
-        else None,
+        context_window=_int_or_none(
+            limit.get("context") or entry.get("context_window") or entry.get("context_length")
+        ),
+        max_output=_int_or_none(
+            limit.get("output") or entry.get("max_output_tokens") or max_completion
+        ),
+        supports_tools=supports_tools if isinstance(supports_tools, bool) else None,
+        supports_reasoning=supports_reasoning if isinstance(supports_reasoning, bool) else None,
         efforts=efforts,
         reasoning_field=reasoning_field,
         native_api=native_api,

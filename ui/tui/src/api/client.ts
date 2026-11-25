@@ -24,6 +24,7 @@ export type CreateSession = Schemas["CreateSessionRequest"]
 export type UpdateSession = Schemas["UpdateSessionRequest"]
 export type ShellResult = Schemas["ShellResponse"]
 export type AuthStatus = Schemas["AuthStatusResponse"]
+export type ChatGPTAccount = Schemas["ChatGPTAccount"]
 export type ForkResult = Schemas["ForkSessionResponse"]
 export type SkillList = Schemas["SkillListResponse"]
 export type SkillContent = Schemas["SkillContentResponse"]
@@ -430,6 +431,40 @@ export class SiwahApi {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider, api_key: apiKey }),
+    })
+  }
+
+  startBrowserLogin(provider: string, clientId?: string) {
+    return this.request<Schemas["AuthBrowserStartResponse"]>(
+      `/v1/auth/browser/${encodeURIComponent(provider)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: clientId }),
+      },
+    )
+  }
+
+  finishBrowserLogin(provider: string, flowId: string, code?: string) {
+    return this.request<Schemas["OkResponse"]>(
+      `/v1/auth/browser/${encodeURIComponent(provider)}/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flow_id: flowId, code }),
+      },
+    )
+  }
+
+  chatGPTAccounts() {
+    return this.request<Schemas["ChatGPTAccountsResponse"]>("/v1/auth/chatgpt/accounts")
+  }
+
+  chatGPTSignOut(clientId: string) {
+    return this.request<Schemas["ChatGPTSignOutResponse"]>("/v1/auth/chatgpt/sign-out", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId }),
     })
   }
 

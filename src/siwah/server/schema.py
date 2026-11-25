@@ -115,6 +115,8 @@ class UsageResponse(BaseModel):
     cache_write_tokens: int = 0
     allowance: float = 0.0
     cost: float = 0.0
+    allowance_steps: int | None = None
+    cost_steps: int | None = None
     list_cost: float = 0.0
     steps: int = 0
     context_window: int | None = None
@@ -237,6 +239,8 @@ class AuthProviderStatus(BaseModel):
     env: str | None = None
     env_set: bool = False
     file_set: bool = False
+    browser_login: bool | None = None
+    browser_method: Literal["chatgpt", "openrouter"] | None = None
 
 
 class AuthStatusResponse(BaseModel):
@@ -248,6 +252,39 @@ class AuthLoginRequest(BaseModel):
 
     provider: str
     api_key: str = Field(min_length=1)
+
+
+class AuthBrowserStartResponse(BaseModel):
+    flow_id: str
+    url: str
+
+
+class AuthBrowserFinishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    flow_id: str = Field(min_length=1, max_length=128)
+    code: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+class AuthBrowserStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_id: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+class ChatGPTAccount(BaseModel):
+    client_id: str
+    label: str
+    active: bool
+    connected: bool
+
+
+class ChatGPTAccountsResponse(BaseModel):
+    accounts: list[ChatGPTAccount]
+
+
+class ChatGPTSignOutResponse(BaseModel):
+    revoked: bool
 
 
 class ShellRequest(BaseModel):

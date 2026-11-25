@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS usage (
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     allowance REAL NOT NULL DEFAULT 0,
     cost REAL NOT NULL DEFAULT 0,
+    allowance_reported INTEGER NOT NULL DEFAULT 0,
+    cost_reported INTEGER NOT NULL DEFAULT 0,
     list_cost REAL NOT NULL DEFAULT 0,
     billing_source TEXT,
     created_at TEXT NOT NULL
@@ -161,6 +163,8 @@ class UsageTotals(BaseModel):
     cache_write_tokens: int = 0
     allowance: float = 0.0
     cost: float = 0.0
+    allowance_steps: int = 0
+    cost_steps: int = 0
     list_cost: float = 0.0
     steps: int = 0
 
@@ -187,6 +191,14 @@ class Store:
             }
             if "duration_ms" not in tool_columns:
                 self._connection.execute("ALTER TABLE tool_calls ADD COLUMN duration_ms REAL")
+            usage_columns = {
+                str(row[1]) for row in self._connection.execute("PRAGMA table_info(usage)")
+            }
+            for column in ("allowance_reported", "cost_reported"):
+                if column not in usage_columns:
+                    self._connection.execute(
+                        f"ALTER TABLE usage ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
+                    )
             self._connection.commit()
 
     def close(self) -> None:
@@ -555,6 +567,15 @@ class Store:
             return (0, 0)
         return (int(row["input_tokens"]), int(row["cache_read_tokens"]))
 
+    def last_context_input(self, session_id: str, provider: str, model: str) -> int | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT input_tokens FROM usage WHERE session_id = ? AND provider = ?"
+                " AND model IN (?, ?) ORDER BY id DESC LIMIT 1",
+                (session_id, provider, model, f"{provider}/{model}"),
+            ).fetchone()
+        return int(row["input_tokens"]) or None if row is not None else None
+
     def record_run_timing(self, session_id: str, run_id: str, durations: dict[str, float]) -> None:
         with self._lock:
             self._connection.execute(
@@ -836,7 +857,8 @@ class Store:
             self._connection.execute(
                 "INSERT INTO usage (session_id, step_id, provider, model, input_tokens, output_tokens,"
                 " reasoning_tokens, cache_read_tokens, cache_write_tokens, allowance, cost, list_cost,"
-                " billing_source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " allowance_reported, cost_reported, billing_source, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     step_id,
@@ -850,6 +872,8 @@ class Store:
                     usage.allowance,
                     usage.cost,
                     usage.list_cost,
+                    usage.allowance_reported,
+                    usage.cost_reported,
                     usage.billing_source,
                     _now(),
                 ),
@@ -866,6 +890,8 @@ class Store:
                 " COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,"
                 " COALESCE(SUM(allowance), 0) AS allowance,"
                 " COALESCE(SUM(cost), 0) AS cost,"
+                " COUNT(CASE WHEN allowance_reported OR allowance > 0 THEN 1 END) AS allowance_steps,"
+                " COUNT(CASE WHEN cost_reported OR cost > 0 THEN 1 END) AS cost_steps,"
                 " COALESCE(SUM(list_cost), 0) AS list_cost,"
                 " COUNT(*) AS steps FROM usage WHERE session_id = ?",
                 (session_id,),

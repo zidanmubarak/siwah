@@ -431,6 +431,78 @@ def test_mcp_cli_add_list_test_show_remove(tmp_path: Path, monkeypatch: pytest.M
     assert "No MCP servers configured" in empty.output
 
 
+def test_mcp_cli_remote_server_uses_bearer_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from typer.testing import CliRunner
+
+    from siwah.cli.main import app
+
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SIWAH_TEST_MCP_PAT", raising=False)
+    runner = CliRunner()
+    url = "https://github-mcp.example.invalid/mcp/"
+    token = "fixture-token"
+    methods: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == url
+        assert request.headers["Authorization"] == f"Bearer {token}"
+        message = json.loads(request.content)
+        methods.append(message["method"])
+        if "id" not in message:
+            return httpx.Response(202)
+        result = (
+            {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}}
+            if message["method"] == "initialize"
+            else {"tools": [{"name": "get_me", "description": "Return current user"}]}
+        )
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": message["id"], "result": result})
+
+    def mock_client(client: HttpMcpClient) -> httpx.AsyncClient:
+        if client._http is None:
+            client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return client._http
+
+    monkeypatch.setattr(HttpMcpClient, "_client", mock_client)
+    added = runner.invoke(
+        app, ["mcp", "add", "github", "--url", url, "--bearer-token-env-var", "SIWAH_TEST_MCP_PAT"]
+    )
+    assert added.exit_code == 0, added.output
+    missing = runner.invoke(app, ["mcp", "test", "github"])
+    assert missing.exit_code == 1
+    assert "Set SIWAH_TEST_MCP_PAT" in missing.output
+    assert not methods
+
+    monkeypatch.setenv("SIWAH_TEST_MCP_PAT", token)
+    shown = runner.invoke(app, ["mcp", "show", "github"])
+    assert shown.exit_code == 0
+    assert json.loads(shown.output)["bearer_token_env_var"] == "SIWAH_TEST_MCP_PAT"
+    assert token not in shown.output
+    tested = runner.invoke(app, ["mcp", "test", "github"])
+    assert tested.exit_code == 0, tested.output
+    assert "github/get_me" in tested.output
+    assert methods == ["initialize", "notifications/initialized", "tools/list"]
+
+
+@pytest.mark.parametrize(
+    "config, error",
+    [
+        ({"url": "http://example.invalid/mcp"}, "requires HTTPS"),
+        ({"bearer_token_env_var": "not-env-name"}, "must be an env name"),
+        ({"auth": "oauth"}, "cannot be combined"),
+        ({"headers": {"authorization": "already-configured"}}, "cannot be combined"),
+        ({"transport": "stdio", "command": ["fake"]}, "requires an HTTP transport"),
+    ],
+)
+def test_mcp_bearer_environment_requires_unambiguous_https(config, error):
+    base = {
+        "transport": "http",
+        "url": "https://example.invalid/mcp",
+        "bearer_token_env_var": "SIWAH_TEST_MCP_PAT",
+    }
+    with pytest.raises(McpError, match=error):
+        normalize_server("remote", {**base, **config})
+
+
 @pytest.mark.asyncio
 async def test_mcp_tool_add_status_remove(tmp_path: Path):
     harness = tmp_path / "harness"

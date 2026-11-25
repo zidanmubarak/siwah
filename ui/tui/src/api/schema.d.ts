@@ -21,6 +21,74 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  "/v1/auth/browser/{provider}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Start Browser Login */
+    post: operations["start_browser_login_v1_auth_browser__provider__post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/auth/browser/{provider}/complete": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Finish Browser Login */
+    post: operations["finish_browser_login_v1_auth_browser__provider__complete_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/auth/chatgpt/accounts": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Chatgpt Accounts */
+    get: operations["chatgpt_accounts_v1_auth_chatgpt_accounts_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/auth/chatgpt/sign-out": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Chatgpt Sign Out */
+    post: operations["chatgpt_sign_out_v1_auth_chatgpt_sign_out_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   "/v1/auth/login": {
     parameters: {
       query?: never
@@ -694,6 +762,25 @@ export interface paths {
 export type webhooks = Record<string, never>
 export interface components {
   schemas: {
+    /** AuthBrowserFinishRequest */
+    AuthBrowserFinishRequest: {
+      /** Code */
+      code?: string | null
+      /** Flow Id */
+      flow_id: string
+    }
+    /** AuthBrowserStartRequest */
+    AuthBrowserStartRequest: {
+      /** Client Id */
+      client_id?: string | null
+    }
+    /** AuthBrowserStartResponse */
+    AuthBrowserStartResponse: {
+      /** Flow Id */
+      flow_id: string
+      /** Url */
+      url: string
+    }
     /** AuthLoginRequest */
     AuthLoginRequest: {
       /** Api Key */
@@ -703,6 +790,10 @@ export interface components {
     }
     /** AuthProviderStatus */
     AuthProviderStatus: {
+      /** Browser Login */
+      browser_login?: boolean | null
+      /** Browser Method */
+      browser_method?: ("openrouter" | "chatgpt") | null
       /** Env */
       env?: string | null
       /**
@@ -773,6 +864,27 @@ export interface components {
        * @default false
        */
       truncated: boolean
+    }
+    /** ChatGPTAccount */
+    ChatGPTAccount: {
+      /** Active */
+      active: boolean
+      /** Client Id */
+      client_id: string
+      /** Connected */
+      connected: boolean
+      /** Label */
+      label: string
+    }
+    /** ChatGPTAccountsResponse */
+    ChatGPTAccountsResponse: {
+      /** Accounts */
+      accounts: components["schemas"]["ChatGPTAccount"][]
+    }
+    /** ChatGPTSignOutResponse */
+    ChatGPTSignOutResponse: {
+      /** Revoked */
+      revoked: boolean
     }
     /** CheckpointCreateRequest */
     CheckpointCreateRequest: {
@@ -1511,6 +1623,8 @@ export interface components {
        * @default 0
        */
       allowance: number
+      /** Allowance Steps */
+      allowance_steps?: number | null
       /**
        * Cache Read Tokens
        * @default 0
@@ -1532,6 +1646,8 @@ export interface components {
        * @default 0
        */
       cost: number
+      /** Cost Steps */
+      cost_steps?: number | null
       /**
        * Input Tokens
        * @default 0
@@ -1602,6 +1718,146 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["EffortResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  start_browser_login_v1_auth_browser__provider__post: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        provider: string
+      }
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["AuthBrowserStartRequest"] | null
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["AuthBrowserStartResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  finish_browser_login_v1_auth_browser__provider__complete_post: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        provider: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AuthBrowserFinishRequest"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["OkResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  chatgpt_accounts_v1_auth_chatgpt_accounts_get: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ChatGPTAccountsResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  chatgpt_sign_out_v1_auth_chatgpt_sign_out_post: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AuthBrowserStartRequest"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ChatGPTSignOutResponse"]
         }
       }
       /** @description Validation Error */

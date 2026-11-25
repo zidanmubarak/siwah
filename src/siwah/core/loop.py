@@ -51,7 +51,7 @@ from ..permissions.policy import (
 )
 from ..providers.base import ProviderError
 from ..providers.profiles import load_profile
-from ..providers.registry import RoleRouter
+from ..providers.registry import ProviderRegistry, RoleRouter
 from ..sandbox import Sandbox
 from ..tools.base import TodoItem, ToolContext, ToolRegistry, ToolResult
 from ..tools.fs import GlobTool, GrepTool, ReadFileTool
@@ -235,6 +235,46 @@ class AgentLoop:
         except (OSError, ValueError):
             return None
 
+    def _context_window(self, model_ref: str | None) -> int | None:
+        if not model_ref:
+            return None
+        provider, _, model = model_ref.partition("/")
+        if isinstance(self.router.registry, ProviderRegistry):
+            catalog_model = self.router.registry.cached_model(provider, model)
+            if catalog_model and catalog_model.context_window:
+                return catalog_model.context_window
+        profile = self._profile(model_ref)
+        return profile.context_window if profile else None
+
+    def _context_limit(self, model_ref: str | None, override: str | None) -> int | None:
+        return self._context_window(override or model_ref) or self.config.context.max_context_tokens
+
+    async def _emit_context(
+        self,
+        emit: EventSink,
+        model_ref: str | None,
+        tokens: int,
+        *,
+        estimated: bool,
+        pruned: int = 0,
+        compacted: bool = False,
+        override: str | None = None,
+    ) -> None:
+        if not tokens:
+            return
+        window = self._context_window(override or model_ref)
+        await emit(
+            "context",
+            {
+                "tokens": tokens,
+                "percent": round(min(100.0, tokens / window * 100), 2) if window else None,
+                "context_window": window,
+                "estimated": estimated,
+                "pruned": pruned,
+                "compacted": compacted,
+            },
+        )
+
     def _tool_specs(self, mode: str):
         specs = self.tools.specs()
         if mode == "plan":
@@ -336,12 +376,6 @@ class AgentLoop:
             )
             context.verifier = verifier
         context_manager = ContextManager(self.config.context)
-        context_window = (
-            profile.context_window
-            if profile and profile.context_window
-            else self.config.context.max_context_tokens
-        )
-
         self.store.update_session(session.id, status="running")
         await emit("status", {"state": "running"})
         if restored_todos:
@@ -484,6 +518,7 @@ class AgentLoop:
                     current_read_results.clear()
                 steps += 1
                 step_id = f"step_{steps}"
+                context_window = self._context_limit(model_ref, model_override)
                 pruned = context_manager.prune(messages)
                 state = context_manager.state(
                     messages,
@@ -524,15 +559,14 @@ class AgentLoop:
                     )
                 if allowance_exhausted():
                     return await self._allowance_stop(session, context, steps, emit)
-                await emit(
-                    "context",
-                    {
-                        "tokens": state.tokens,
-                        "percent": state.percent,
-                        "context_window": context_window,
-                        "pruned": state.pruned,
-                        "compacted": state.compacted,
-                    },
+                await self._emit_context(
+                    emit,
+                    model_ref,
+                    state.tokens,
+                    estimated=True,
+                    pruned=state.pruned,
+                    compacted=state.compacted,
+                    override=model_override,
                 )
 
                 assistant_id = f"msg_{uuid.uuid4().hex}"
@@ -656,6 +690,12 @@ class AgentLoop:
                     provider=outcome.provider,
                     model=outcome.model,
                     usage=outcome.usage,
+                )
+                await self._emit_context(
+                    emit,
+                    f"{outcome.provider}/{outcome.model}",
+                    outcome.usage.input_tokens,
+                    estimated=False,
                 )
                 if self.config.trace.enabled:
                     self.store.record_trace(
@@ -1019,12 +1059,12 @@ class AgentLoop:
                 error="max_steps",
             )
         except asyncio.CancelledError:
-            await self._session_hooks(context, "SessionEnd", "aborted")
-            await self._session_hooks(context, "Stop", "aborted")
             self.store.update_session(session.id, status="idle")
             await self._sync_todos(session, context, emit)
             self.store.append_trajectory(session.id, {"type": "cancelled"})
             await emit("run.end", {"reason": "aborted"})
+            await self._session_hooks(context, "SessionEnd", "aborted")
+            await self._session_hooks(context, "Stop", "aborted")
             raise
         except Exception as exc:  # keep the session consistent on unexpected errors
             await self._session_hooks(context, "SessionEnd", "error")

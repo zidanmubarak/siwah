@@ -1,4 +1,4 @@
-import type { BoxRenderable, ScrollBoxRenderable } from "@opentui/core"
+import { type BoxRenderable, MacOSScrollAccel, type ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Index, onCleanup, onMount, Show } from "solid-js"
 import { bindingMatches, filterCommands, filterFiles } from "../commands"
@@ -30,6 +30,12 @@ import { ToastStack } from "./ToastStack"
 import { TodoPanel } from "./TodoPanel"
 import { TopBar } from "./TopBar"
 import { Welcome } from "./Welcome"
+
+class TranscriptScrollAcceleration extends MacOSScrollAccel {
+  override tick(now?: number): number {
+    return Math.max(2, super.tick(now))
+  }
+}
 
 export function App(props: { store: TuiStore; initialize?: boolean }) {
   const renderer = useRenderer()
@@ -124,6 +130,7 @@ function Shell() {
   })
 
   let transcript: ScrollBoxRenderable | undefined
+  const scrollAcceleration = new TranscriptScrollAcceleration()
   const [awayFromLatest, setAwayFromLatest] = createSignal(false)
   const trackScroll = (node: ScrollBoxRenderable) => {
     transcript = node
@@ -403,10 +410,21 @@ function Shell() {
     }
   }
 
+  const hasTextSelection = () => (renderer.getSelection()?.getSelectedText() ?? "").length > 0
+
   useKeyboard((key) => {
     // The modal is above the inline permission card. Never resolve a hidden
     // request from text intended for a dialog (for example an API key).
     if (store.dialog()) return
+    if (store.running() && bindingMatches(key, keybinds.cancel)) {
+      key.stopPropagation()
+      if (hasTextSelection()) {
+        renderer.clearSelection()
+        return
+      }
+      void store.abort()
+      return
+    }
     if (store.permission()) return
 
     if (!inlineKind() && promptText() === "" && (key.name === "up" || key.name === "down")) {
@@ -535,10 +553,8 @@ function Shell() {
 
     if (bindingMatches(key, keybinds.cancel)) {
       key.stopPropagation()
-      if (renderer.hasSelection) {
+      if (hasTextSelection()) {
         renderer.clearSelection()
-      } else if (store.running()) {
-        void store.abort()
       } else if (promptText().length > 0) {
         clearPrompt()
       } else {
@@ -592,6 +608,7 @@ function Shell() {
               stickyStart="bottom"
               scrollX={false}
               viewportCulling
+              scrollAcceleration={scrollAcceleration}
               paddingX={2}
               paddingTop={1}
               scrollbarOptions={{ visible: false }}
@@ -615,7 +632,7 @@ function Shell() {
         onSelect={(item) => chooseInline(item.value)}
       />
 
-      <PermissionDialog />
+      <PermissionDialog cancelKey={keybinds.cancel} />
       <box
         id="composer-dock"
         ref={(node) => {

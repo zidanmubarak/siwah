@@ -142,21 +142,32 @@ if ($LASTEXITCODE -ne 0) { throw "uv tool install failed." }
 
 if ($env:SIWAH_SKIP_TUI -ne "1") {
     Write-Step "Building the TUI"
+    $binPath = [IO.Path]::GetFullPath($BinDir)
+    New-Item -ItemType Directory -Force $binPath | Out-Null
+    $target = Join-Path $binPath $TuiName
+    $built = Join-Path $binPath ".tui-build-$([Guid]::NewGuid()).exe"
+    $previousOutfile = $env:SIWAH_TUI_OUTFILE
     Push-Location (Join-Path $Source "ui\tui")
     try {
         & $BunCommand install --frozen-lockfile
         if ($LASTEXITCODE -ne 0) { throw "bun install failed." }
+        $env:SIWAH_TUI_OUTFILE = $built
         & $BunCommand run build
         if ($LASTEXITCODE -ne 0) { throw "TUI build failed." }
+        if (-not [IO.File]::Exists($built)) { throw "TUI build did not produce $built." }
+        if ([IO.File]::Exists($target)) {
+            [IO.File]::Replace($built, $target, [NullString]::Value)
+        }
+        else {
+            [IO.File]::Move($built, $target)
+        }
     }
     finally {
+        $env:SIWAH_TUI_OUTFILE = $previousOutfile
+        if ([IO.File]::Exists($built)) { [IO.File]::Delete($built) }
         Pop-Location
     }
-    $built = Join-Path $Source "ui\tui\dist\$TuiName"
-    if (-not (Test-Path $built)) { throw "TUI build did not produce $built." }
-    New-Item -ItemType Directory -Force $BinDir | Out-Null
-    Copy-Item $built (Join-Path $BinDir $TuiName) -Force
-    Write-Host "TUI binary installed to $(Join-Path $BinDir $TuiName)"
+    Write-Host "TUI binary installed to $target"
 }
 
 Write-Step "Making the siwah command available"

@@ -22,7 +22,7 @@ export function StatusBar(props: { embedded?: boolean } = {}) {
       ? `${store.evolution()?.tag} ${store.evolution()?.status ?? "idle"}`
       : ""
   const fixedWidth = () =>
-    [connection(), effort(), tasks(), evolution()]
+    [connection(), effort(), plan(), tasks(), evolution()]
       .filter(Boolean)
       .reduce((sum, value) => sum + Bun.stringWidth(value) + 1, 0)
   const model = () =>
@@ -37,7 +37,8 @@ export function StatusBar(props: { embedded?: boolean } = {}) {
       ),
       true,
     )
-  const effort = () => store.effort() ?? "off"
+  const effort = () => store.effort() ?? "auto"
+  const plan = () => (store.usingChatGPTPlan() ? "ChatGPT plan" : "")
   const done = () => store.todos().filter((item) => item.status === "done").length
   const online = () => store.connection() === "online"
   const connection = () => {
@@ -79,6 +80,15 @@ export function StatusBar(props: { embedded?: boolean } = {}) {
           </text>
           <text fg={theme.muted} attributes={TextAttributes.BOLD} wrapMode="none">
             {effort()}
+          </text>
+        </Show>
+        <Show when={plan()}>
+          <text
+            fg={theme.accent}
+            wrapMode="none"
+            onMouseDown={() => store.openDialog({ type: "cost" })}
+          >
+            {plan()}
           </text>
         </Show>
         <Show when={tasks()}>

@@ -1,6 +1,73 @@
 {
   "components": {
     "schemas": {
+      "AuthBrowserFinishRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "flow_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Flow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow_id"
+        ],
+        "title": "AuthBrowserFinishRequest",
+        "type": "object"
+      },
+      "AuthBrowserStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          }
+        },
+        "title": "AuthBrowserStartRequest",
+        "type": "object"
+      },
+      "AuthBrowserStartResponse": {
+        "properties": {
+          "flow_id": {
+            "title": "Flow Id",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow_id",
+          "url"
+        ],
+        "title": "AuthBrowserStartResponse",
+        "type": "object"
+      },
       "AuthLoginRequest": {
         "additionalProperties": false,
         "properties": {
@@ -23,6 +90,32 @@
       },
       "AuthProviderStatus": {
         "properties": {
+          "browser_login": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Browser Login"
+          },
+          "browser_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "openrouter",
+                  "chatgpt"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Browser Method"
+          },
           "env": {
             "anyOf": [
               {
@@ -188,6 +281,63 @@
           "available"
         ],
         "title": "ChangesResponse",
+        "type": "object"
+      },
+      "ChatGPTAccount": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "label",
+          "active",
+          "connected"
+        ],
+        "title": "ChatGPTAccount",
+        "type": "object"
+      },
+      "ChatGPTAccountsResponse": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ChatGPTAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "title": "ChatGPTAccountsResponse",
+        "type": "object"
+      },
+      "ChatGPTSignOutResponse": {
+        "properties": {
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "title": "ChatGPTSignOutResponse",
         "type": "object"
       },
       "CheckpointCreateRequest": {
@@ -2123,6 +2273,17 @@
             "title": "Allowance",
             "type": "number"
           },
+          "allowance_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowance Steps"
+          },
           "cache_read_tokens": {
             "default": 0,
             "title": "Cache Read Tokens",
@@ -2170,6 +2331,17 @@
             "default": 0.0,
             "title": "Cost",
             "type": "number"
+          },
+          "cost_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Steps"
           },
           "input_tokens": {
             "default": 0,
@@ -2303,6 +2475,257 @@
           }
         },
         "summary": "Set Agent Effort",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/auth/browser/{provider}": {
+      "post": {
+        "operationId": "start_browser_login_v1_auth_browser__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AuthBrowserStartRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthBrowserStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Browser Login",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/auth/browser/{provider}/complete": {
+      "post": {
+        "operationId": "finish_browser_login_v1_auth_browser__provider__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthBrowserFinishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish Browser Login",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/auth/chatgpt/accounts": {
+      "get": {
+        "operationId": "chatgpt_accounts_v1_auth_chatgpt_accounts_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGPTAccountsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chatgpt Accounts",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/auth/chatgpt/sign-out": {
+      "post": {
+        "operationId": "chatgpt_sign_out_v1_auth_chatgpt_sign_out_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthBrowserStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGPTSignOutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chatgpt Sign Out",
         "tags": [
           "siwah"
         ]

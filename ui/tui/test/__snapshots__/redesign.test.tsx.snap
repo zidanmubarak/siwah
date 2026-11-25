@@ -11,7 +11,8 @@ exports[`cost redesigned surface snapshot: cost-workbench 1`] = `
        │  cost                                                   esc ×  │       
        │                                                                │       
        │  │                                                             │       
-       │  │ Session allowance                               $0.000000   │       
+       │  │ Provider-reported cost                                  —   │       
+       │  │ Session allowance                                       —   │       
        │  │                                                             │       
        │                                                                │       
        │  Token usage                                                   │       
@@ -21,7 +22,6 @@ exports[`cost redesigned surface snapshot: cost-workbench 1`] = `
        │  cache read                                                 0  │       
        │  steps                                                      0  │       
        │  Esc closes                                                    │       
-       │                                                                │       
        ╰────────────────────────────────────────────────────────────────╯       
                                                                                 
                                                                                 
@@ -86,11 +86,11 @@ exports[`toast redesigned surface snapshot: toast-workbench 1`] = `
                                                                                 
                                                                                 
   ╭──────────────────────────────────────────────────────────────────────────╮  
-  │ › build ask                                    ctx — · 0 tok · $0.000000 │  
+  │ › build ask                                       ctx — · 0 tok · cost — │  
   │                                                                          │  
   │ Ask siwah to change something…                                           │  
   │ Enter send · Shift+Enter newline                                         │  
-  │ mock/model-a off                                                   siwah │  
+  │ mock/model-a auto                                                  siwah │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
 "
@@ -118,11 +118,11 @@ exports[`split redesigned surface snapshot: split-workbench 1`] = `
                                                                                                                                             
                                                                                                                                             
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
-  │ › build ask                                                                                                ctx — · 0 tok · $0.000000 │  
+  │ › build ask                                                                                                   ctx — · 0 tok · cost — │  
   │                                                                                                                                      │  
   │ Ask siwah to change something…                                                                                                       │  
   │ Enter send · Shift+Enter newline                                                                                                     │  
-  │ mock/model-a off                                                                                                       D:/work/siwah │  
+  │ mock/model-a auto                                                                                                      D:/work/siwah │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                             
 "

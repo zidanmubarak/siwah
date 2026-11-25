@@ -125,6 +125,14 @@ directly.
 
 ## Daemon and port
 
+### `Starting siwah daemon…` appears on launch
+
+On a cold launch, `siwah` starts the local daemon through the supervisor and
+waits for its health check before opening the TUI. The launcher reuses a healthy
+daemon if one is already running. A daemon started by the TUI launcher stops
+when that launcher exits. To keep a daemon running for multiple TUI launches,
+run `siwah serve` in a separate terminal.
+
 ### “Could not start the daemon” or the port is busy
 
 The daemon prefers an ephemeral port (`[server].port = 0`). If a fixed port is
@@ -186,6 +194,12 @@ cp dist/siwah-tui ~/.siwah/bin/siwah-tui
 
 Use `siwah-tui.exe` on Windows. A wheel does not include the binary. As a
 fallback, use `siwah run "..." --ui plain`.
+
+The source installer and updater place the managed TUI binary in
+`~/.siwah/bin/`. A second `siwah-tui[.exe]` under `~/.siwah/src/ui/tui/dist/`
+is a development or older installer build. The managed copy takes precedence
+unless you set `SIWAH_TUI_BINARY`. The separate `siwah` command is the Python
+entry point installed by `uv tool install`.
 
 ### The screen is garbled or colors are wrong
 

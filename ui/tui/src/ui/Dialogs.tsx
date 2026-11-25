@@ -11,7 +11,13 @@ import {
   Show,
   untrack,
 } from "solid-js"
-import type { Checkpoint, MessageAttachment, Session } from "../api/client"
+import {
+  ApiError,
+  type ChatGPTAccount,
+  type Checkpoint,
+  type MessageAttachment,
+  type Session,
+} from "../api/client"
 import { commands, fuzzyMatch, helpText } from "../commands"
 import type { DialogState, Effort, UiMessage } from "../state"
 import { overlayBackground, resolveTheme, type ThemeName, themeNames } from "../theme"
@@ -660,7 +666,7 @@ function EffortDialog(props: { onClose: () => void }) {
   const initial = () => Math.max(0, options().indexOf(current() as Effort))
   const items = () =>
     options().map((value) => ({
-      label: value === "off" ? "off (provider default)" : value,
+      label: value === "off" ? "provider default" : value,
       detail:
         value === "off"
           ? "let the provider choose"
@@ -788,6 +794,12 @@ function CostDialog(props: { onClose: () => void }) {
   const store = useStore()
   const theme = useTheme()
   const usage = () => store.usage()
+  const amount = (value?: number, reportedCount?: number | null) => {
+    const reported = reportedCount ?? 0
+    if (reported <= 0 && !value) return "—"
+    const partial = reported > 0 && reported < (usage()?.steps ?? 0)
+    return `$${(value ?? 0).toFixed(6)}${partial ? " (partial)" : ""}`
+  }
   useKeyboard((key) => {
     if (key.name === "escape") {
       key.stopPropagation()
@@ -799,9 +811,13 @@ function CostDialog(props: { onClose: () => void }) {
       <box flexDirection="column" width="100%">
         <Notice>
           <MetricRow
-            label="Session allowance"
-            value={`$${(usage()?.allowance ?? 0).toFixed(6)}`}
+            label="Provider-reported cost"
+            value={amount(usage()?.cost, usage()?.cost_steps)}
             emphasis
+          />
+          <MetricRow
+            label="Session allowance"
+            value={amount(usage()?.allowance, usage()?.allowance_steps)}
           />
         </Notice>
         <SectionLabel>Token usage</SectionLabel>
@@ -810,6 +826,11 @@ function CostDialog(props: { onClose: () => void }) {
         <MetricRow label="reasoning" value={usage()?.reasoning_tokens ?? 0} />
         <MetricRow label="cache read" value={usage()?.cache_read_tokens ?? 0} />
         <MetricRow label="steps" value={usage()?.steps ?? 0} />
+        <Show when={store.usingChatGPTPlan()}>
+          <text fg={theme.accent} wrapMode="word">
+            Manage usage · https://chatgpt.com/settings/usage
+          </text>
+        </Show>
         <text fg={theme.dim}>Esc closes</text>
       </box>
     </Modal>
@@ -1058,12 +1079,20 @@ function ConnectDialog(props: { onClose: () => void }) {
   const store = useStore()
   const theme = useTheme()
   const providers = () => store.auth()?.providers ?? []
-  const [stage, setStage] = createSignal<"provider" | "key">("provider")
+  const [stage, setStage] = createSignal<"provider" | "key" | "browser" | "account" | "confirmed">(
+    "provider",
+  )
+  const [browserFlow, setBrowserFlow] = createSignal<{ flow_id: string; url: string } | null>(null)
+  const [accounts, setAccounts] = createSignal<ChatGPTAccount[]>([])
+  const [accountIndex, setAccountIndex] = createSignal(0)
+  const account = () => accounts()[accountIndex() - 1]
+  const accountStart = () => windowStart(accountIndex(), accounts().length + 1, 7)
   const [selected, setSelected] = createSignal(0)
   const [secret, setSecret] = createSignal("")
   const [error, setError] = createSignal<string | null>(null)
   const [busy, setBusy] = createSignal(false)
   const current = () => providers()[selected()]
+  const chatGPT = () => current()?.browser_method === "chatgpt"
   const last = () => Math.max(0, providers().length - 1)
   const start = () => windowStart(selected(), providers().length, 8)
   const visible = () => providers().slice(start(), start() + 8)
@@ -1072,12 +1101,18 @@ function ConnectDialog(props: { onClose: () => void }) {
     env_set: boolean
     file_set: boolean
     env?: string | null
+    browser_login?: boolean | null
+    browser_method?: string | null
   }) => {
     if (p.scheme === "none") return "no key required"
     if (p.env_set) return `env ${p.env ?? "set"}`
+    if (p.browser_method === "chatgpt") {
+      return p.file_set ? "ChatGPT plan connected" : "Continue with ChatGPT"
+    }
     if (p.file_set) return "auth file saved"
+    if (p.browser_login) return "browser sign-in"
     if (p.env) return `needs ${p.env}`
-    return "no key required"
+    return "API key required"
   }
   const bullets = () => maskedSecret(secret())
   const createDefaults = async () => {
@@ -1089,7 +1124,7 @@ function ConnectDialog(props: { onClose: () => void }) {
       if ((store.auth()?.providers ?? []).length === 0) {
         setError("No providers were created. Restart siwah once and reopen /connect.")
       } else {
-        store.notify("Default providers created", "success")
+        store.notify("Provider presets available", "success")
       }
     } catch (err) {
       setError(
@@ -1099,7 +1134,21 @@ function ConnectDialog(props: { onClose: () => void }) {
       setBusy(false)
     }
   }
-  const chooseProvider = () => {
+  const startBrowser = async (provider: string, clientId?: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const flow = await store.startBrowserLogin(provider, clientId)
+      if (!flow.flow_id || !flow.url) throw new Error("Browser sign-in is unavailable.")
+      setBrowserFlow({ flow_id: flow.flow_id, url: flow.url })
+      setStage("browser")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const chooseProvider = async (apiKey = false) => {
     const provider = current()
     if (!provider) return
     if (provider.env_set) {
@@ -1110,13 +1159,50 @@ function ConnectDialog(props: { onClose: () => void }) {
       props.onClose()
       return
     }
-    if (provider.scheme === "none" || (!provider.env && !provider.file_set)) {
+    if (provider.scheme === "none") {
       store.notify(`${provider.provider} does not require a key`, "info")
       props.onClose()
       return
     }
-    setStage("key")
     setError(null)
+    if (provider.browser_method === "chatgpt") {
+      setBusy(true)
+      try {
+        setAccounts(await store.chatGPTAccounts())
+        setAccountIndex(0)
+        setStage("account")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    if (!provider.browser_login || apiKey) {
+      setStage("key")
+      return
+    }
+    await startBrowser(provider.provider)
+  }
+  const signOutChatGPT = async () => {
+    const selectedAccount = account()
+    if (!selectedAccount?.connected) return
+    setBusy(true)
+    setError(null)
+    try {
+      const revoked = await store.chatGPTSignOut(selectedAccount.client_id)
+      setAccounts(await store.chatGPTAccounts())
+      store.notify(
+        revoked
+          ? "Signed out of ChatGPT"
+          : "Signed out locally. Check connected apps in ChatGPT Settings.",
+        revoked ? "success" : "warning",
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
   }
   const submit = async () => {
     const provider = current()
@@ -1124,25 +1210,43 @@ function ConnectDialog(props: { onClose: () => void }) {
       setError("Select a configured provider first.")
       return
     }
-    if (!secret().trim()) {
-      setError("The API key is empty.")
+    if (!chatGPT() && !secret().trim()) {
+      setError(stage() === "browser" ? "The sign-in code is empty." : "The API key is empty.")
       return
     }
     if (busy()) return
     setBusy(true)
     setError(null)
     try {
-      await store.login(provider.provider, secret().trim())
-      store.notify(`Connected ${provider.provider}`, "success")
-      props.onClose()
+      const flow = browserFlow()
+      if (stage() === "browser" && flow) {
+        await store.finishBrowserLogin(
+          provider.provider,
+          flow.flow_id,
+          chatGPT() ? undefined : secret().trim(),
+        )
+      } else {
+        await store.login(provider.provider, secret().trim())
+      }
+      if (chatGPT() && accounts().length === 0) {
+        setStage("confirmed")
+      } else {
+        store.notify(`Connected ${provider.provider}`, "success")
+        props.onClose()
+      }
     } catch (err) {
+      if (stage() === "browser" && !(err instanceof ApiError && err.code === "auth_pending")) {
+        setStage(chatGPT() ? "account" : "provider")
+        setBrowserFlow(null)
+        setSecret("")
+      }
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
   }
   usePaste((event) => {
-    if (stage() !== "key" || busy()) return
+    if (stage() === "provider" || stage() === "account" || chatGPT() || busy()) return
     event.preventDefault()
     event.stopPropagation()
     if (event.metadata?.kind === "binary") return
@@ -1150,14 +1254,37 @@ function ConnectDialog(props: { onClose: () => void }) {
   })
   useKeyboard((key) => {
     if (busy()) return
+    if (stage() === "confirmed") {
+      if (key.name === "return" || key.name === "escape") {
+        key.stopPropagation()
+        props.onClose()
+      }
+      return
+    }
     if (key.name === "escape") {
       key.stopPropagation()
-      if (stage() === "key") {
-        setStage("provider")
+      if (stage() !== "provider") {
+        setStage(stage() === "browser" && chatGPT() ? "account" : "provider")
+        setBrowserFlow(null)
         setSecret("")
         setError(null)
       } else {
         props.onClose()
+      }
+      return
+    }
+    if (stage() === "account") {
+      if (key.name === "up" || key.name === "down") {
+        const direction = key.name === "up" ? -1 : 1
+        key.stopPropagation()
+        setAccountIndex((value) => Math.max(0, Math.min(accounts().length, value + direction)))
+      } else if (key.name === "return") {
+        key.stopPropagation()
+        const provider = current()
+        if (provider) void startBrowser(provider.provider, account()?.client_id)
+      } else if (key.name === "d") {
+        key.stopPropagation()
+        void signOutChatGPT()
       }
       return
     }
@@ -1180,10 +1307,13 @@ function ConnectDialog(props: { onClose: () => void }) {
       } else if (key.name === "end") {
         key.stopPropagation()
         setSelected(last())
-      } else if (key.name === "return") {
+      } else if (key.name === "a") {
+        key.stopPropagation()
+        void createDefaults()
+      } else if (key.name === "return" || key.name === "p") {
         key.stopPropagation()
         if (providers().length === 0) void createDefaults()
-        else chooseProvider()
+        else void chooseProvider(key.name === "p")
       }
       return
     }
@@ -1192,6 +1322,7 @@ function ConnectDialog(props: { onClose: () => void }) {
       void submit()
       return
     }
+    if (chatGPT()) return
     if (key.name === "backspace" || key.name === "delete") {
       key.stopPropagation()
       setSecret((value) => value.slice(0, -1))
@@ -1215,8 +1346,7 @@ function ConnectDialog(props: { onClose: () => void }) {
             <box flexDirection="column">
               <text fg={theme.warning}>No providers are configured.</text>
               <text fg={theme.text} wrapMode="word">
-                Press Enter to create the default provider catalog (opencode-go and openai) in
-                config.toml. If this daemon is older, restart siwah once first.
+                Press Enter to add the built-in provider presets to config.toml.
               </text>
               <text fg={theme.dim}>{`Config: ${configFile}`}</text>
             </box>
@@ -1225,20 +1355,74 @@ function ConnectDialog(props: { onClose: () => void }) {
           <Show
             when={stage() === "provider"}
             fallback={
-              <box flexDirection="column">
-                <SectionLabel>{`Provider: ${current()?.provider ?? ""}`}</SectionLabel>
-                <text fg={theme.dim}>
-                  {current()?.env
-                    ? `Credential env: ${current()?.env}`
-                    : "This provider does not declare an env credential."}
-                </text>
-                <box backgroundColor={theme.panelAlt} paddingX={1} marginY={1}>
-                  <text fg={theme.text}>{`Key: ${bullets()}`}</text>
-                </box>
-                <text fg={theme.dim}>
-                  Paste is hidden; type or paste the key, Enter saves, Esc goes back.
-                </text>
-              </box>
+              <Show
+                when={stage() !== "confirmed"}
+                fallback={
+                  <box flexDirection="column">
+                    <SectionLabel>You're using your ChatGPT plan</SectionLabel>
+                    <text fg={theme.text} wrapMode="word">
+                      Eligible requests use your ChatGPT plan. Manage usage in /cost or at
+                      https://chatgpt.com/settings/usage.
+                    </text>
+                    <text fg={theme.accent} onMouseDown={props.onClose}>
+                      Got it
+                    </text>
+                  </box>
+                }
+              >
+                <Show
+                  when={stage() !== "account"}
+                  fallback={
+                    <box flexDirection="column">
+                      <SectionLabel>ChatGPT accounts</SectionLabel>
+                      <For each={[null, ...accounts()].slice(accountStart(), accountStart() + 7)}>
+                        {(item, index) => {
+                          const row = () => accountStart() + index()
+                          return (
+                            <text fg={row() === accountIndex() ? theme.accent : theme.text}>
+                              {`${row() === accountIndex() ? "› " : "  "}${item?.label ?? "Add a ChatGPT account"}${item?.active ? " · active" : item?.connected ? "" : item ? " · signed out" : ""}`}
+                            </text>
+                          )
+                        }}
+                      </For>
+                      <text fg={theme.dim} wrapMode="word">
+                        Enter signs in · D signs out · Esc goes back
+                      </text>
+                    </box>
+                  }
+                >
+                  <box flexDirection="column">
+                    <SectionLabel>{`Provider: ${current()?.provider ?? ""}`}</SectionLabel>
+                    <Show
+                      when={stage() === "browser"}
+                      fallback={
+                        <text fg={theme.dim}>
+                          {current()?.env
+                            ? `Credential env: ${current()?.env}`
+                            : "Enter your provider API key."}
+                        </text>
+                      }
+                    >
+                      <text fg={theme.dim} wrapMode="word">
+                        {chatGPT()
+                          ? "Finish signing in with ChatGPT in your browser, then press Enter."
+                          : "Sign in with OpenRouter in your browser, then paste the one-time code here."}
+                      </text>
+                      <text fg={theme.accent} wrapMode="char">
+                        {browserFlow()?.url}
+                      </text>
+                    </Show>
+                    <Show when={!chatGPT()}>
+                      <box backgroundColor={theme.panelAlt} paddingX={1} marginY={1}>
+                        <text
+                          fg={theme.text}
+                        >{`${stage() === "browser" ? "Code" : "Key"}: ${bullets()}`}</text>
+                      </box>
+                      <text fg={theme.dim}>Input is hidden. Press Enter to submit.</text>
+                    </Show>
+                  </box>
+                </Show>
+              </Show>
             }
           >
             <text fg={theme.dim}>
@@ -1255,7 +1439,7 @@ function ConnectDialog(props: { onClose: () => void }) {
                     paddingX={1}
                     onMouseDown={() => {
                       setSelected(row())
-                      chooseProvider()
+                      void chooseProvider()
                     }}
                   >
                     <text fg={row() === selected() ? theme.accent : theme.text}>
@@ -1266,7 +1450,7 @@ function ConnectDialog(props: { onClose: () => void }) {
                 )
               }}
             </For>
-            <text fg={theme.dim}>↑/↓ move · PgUp/PgDn · Enter choose · Esc close</text>
+            <text fg={theme.dim}>↑/↓ move · Enter connect · P use API key</text>
           </Show>
         </Show>
         <Show when={error()}>
@@ -1279,12 +1463,16 @@ function ConnectDialog(props: { onClose: () => void }) {
           {busy()
             ? providers().length === 0
               ? "Creating default providers…"
-              : "Saving the key…"
-            : stage() === "key"
-              ? "Enter saves the key · Esc goes back · Ctrl+C twice exits"
-              : providers().length === 0
-                ? "Enter creates defaults · Esc closes"
-                : "Select a configured provider · Enter chooses · Esc closes"}
+              : "Connecting…"
+            : stage() === "confirmed"
+              ? "Enter continues"
+              : stage() === "account"
+                ? "↑/↓ select an account"
+                : stage() !== "provider"
+                  ? "Enter submits · Esc goes back"
+                  : providers().length === 0
+                    ? "Enter creates defaults · Esc closes"
+                    : "A add provider presets · Esc closes"}
         </text>
       </box>
     </Modal>

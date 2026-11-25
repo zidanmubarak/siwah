@@ -3,14 +3,20 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+from typer import Exit
 from typer.testing import CliRunner
 
 from siwah.cli import main as cli_main
 from siwah.cli.main import app
 from siwah.cli.plain_ui import PlainRenderer
 from siwah.config import AuthConfig, Config, ProviderConfig, RolesConfig
+from siwah.core import loop as agent_loop
 from siwah.version import __version__
 
 
@@ -73,6 +79,30 @@ def test_promote_tui_binary_activates_a_staged_build(tmp_path: Path, monkeypatch
 
     assert target.read_text(encoding="utf-8") == "new"
     assert not staged.exists()
+
+
+def test_launch_uses_staged_binary_on_first_launch(tmp_path: Path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    name = cli_main._tui_binary_name()
+    staged = bin_dir / f"{name}.next"
+    staged.write_bytes(b"new")
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path))
+    monkeypatch.delenv("SIWAH_TUI_BINARY", raising=False)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(sys, "stdout", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(cli_main, "_ensure_daemon", lambda: ("server", "token", None))
+    monkeypatch.setattr(cli_main, "_find_bun", lambda: None)
+
+    def run(command, **_kwargs):
+        assert command == [str(bin_dir / name)]
+        assert (bin_dir / name).read_bytes() == b"new"
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", run)
+    with pytest.raises(Exit) as result:
+        cli_main.launch_tui()
+    assert result.value.exit_code == 0
 
 
 def test_doctor_with_empty_home_creates_default_catalog(tmp_path: Path, monkeypatch):
@@ -161,7 +191,7 @@ def test_run_keyboard_interrupt_exits_130(tmp_path: Path, monkeypatch):
         async def run(self, *_args, **_kwargs):
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli_main, "AgentLoop", InterruptingLoop)
+    monkeypatch.setattr(agent_loop, "AgentLoop", InterruptingLoop)
     result = CliRunner().invoke(
         app,
         ["run", "hello", "--cwd", str(tmp_path), "--model", "mock/model-a"],

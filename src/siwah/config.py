@@ -30,6 +30,7 @@ class AuthConfig(BaseModel):
 
     scheme: Literal["bearer", "none"] = "bearer"
     env: str | None = None
+    browser: Literal["openrouter", "chatgpt"] | None = None
 
 
 class ProviderConfig(BaseModel):
@@ -42,6 +43,8 @@ class ProviderConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     stream_usage: bool = True
     cost_field: str = "usage.opencode.allowance"
+    reasoning_format: Literal["flat", "openrouter"] = "flat"
+    replay_reasoning: bool = False
     max_retries: int = 2
     timeout_s: float = 120.0
     connect_timeout_s: float = 15.0
@@ -291,6 +294,33 @@ auth = { scheme = "bearer", env = "OPENAI_API_KEY" }
 stream_usage = true
 cost_field = "usage.cost"
 
+[providers.chatgpt]
+api = "openai_responses"
+base_url = "https://api.openai.com/v1"
+models_url = "https://api.openai.com/v1/models"
+auth = { scheme = "bearer", browser = "chatgpt" }
+
+[providers.openrouter]
+api = "openai_chat"
+base_url = "https://openrouter.ai/api/v1"
+models_url = "https://openrouter.ai/api/v1/models"
+auth = { scheme = "bearer", env = "OPENROUTER_API_KEY", browser = "openrouter" }
+cost_field = "usage.cost"
+reasoning_format = "openrouter"
+
+[providers.deepseek]
+api = "openai_chat"
+base_url = "https://api.deepseek.com"
+models_url = "https://api.deepseek.com/models"
+auth = { scheme = "bearer", env = "DEEPSEEK_API_KEY" }
+replay_reasoning = true
+
+[providers.commandcode]
+api = "openai_chat"
+base_url = "https://api.commandcode.ai/provider/v1"
+models_url = "https://api.commandcode.ai/provider/v1/models"
+auth = { scheme = "bearer", env = "COMMAND_CODE_API_KEY" }
+
 [roles]
 # main = "opencode-go/<model-id>"
 # plan = "opencode-go/<model-id>"
@@ -409,6 +439,25 @@ def ensure_default_config() -> Path:
     ensure_home()
     write_private(target, default_config_text())
     return target
+
+
+def add_default_providers() -> Config:
+    """Append missing provider presets without rewriting the user's config."""
+    target = ensure_default_config()
+    config = load_config(target)
+    defaults = tomllib.loads(default_config_text())["providers"]
+    missing = {name: preset for name, preset in defaults.items() if name not in config.providers}
+    if missing:
+        text = target.read_text(encoding="utf-8").rstrip()
+        updated = f"{text}\n\n{tomli_w.dumps({'providers': missing})}"
+        try:
+            config = Config.model_validate(tomllib.loads(updated))
+        except ValueError as exc:
+            raise ConfigError(
+                f"Cannot append provider presets to {target}. Use separate provider tables in TOML."
+            ) from exc
+        write_private(target, updated)
+    return config
 
 
 def update_budget_config(values: dict[str, object], path: Path | None = None) -> Path:

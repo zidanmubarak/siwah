@@ -895,7 +895,96 @@ test("connect wizard lists configured providers", async () => {
     const frame = setup.captureCharFrame()
     expect(frame).toContain("opencode-go")
     expect(frame).toContain("needs OPENCODE_API_KEY")
-    expect(frame).toContain("Select a configured provider")
+    expect(frame).toContain("A add provider presets")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("OpenRouter browser sign-in masks the one-time code and completes through the daemon", async () => {
+  const store = readyStore()
+  store.auth({
+    providers: [
+      {
+        provider: "openrouter",
+        scheme: "bearer",
+        browser_login: true,
+        browser_method: "openrouter",
+        env_set: false,
+        file_set: false,
+      },
+    ],
+  })
+  const submissions: Array<[string, string, string | undefined]> = []
+  store.startBrowserLogin = async (provider) => {
+    expect(provider).toBe("openrouter")
+    return { flow_id: "op-flow", url: "https://openrouter.ai/auth" }
+  }
+  store.finishBrowserLogin = async (provider, flow, code) => {
+    submissions.push([provider, flow, code])
+  }
+  store.openDialog({ type: "connect" })
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 100,
+    height: 30,
+  })
+  try {
+    await setup.renderOnce()
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("https://openrouter.ai/auth")
+    setup.mockInput.typeText("test-code")
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).not.toContain("test-code")
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(submissions).toEqual([["openrouter", "op-flow", "test-code"]])
+    expect(store.dialog()).toBeNull()
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("ChatGPT browser sign-in waits for callback confirmation without asking for an API key", async () => {
+  const store = readyStore()
+  store.auth({
+    providers: [
+      {
+        provider: "chatgpt",
+        scheme: "bearer",
+        browser_login: true,
+        browser_method: "chatgpt",
+        env_set: false,
+        file_set: false,
+      },
+    ],
+  })
+  store.chatGPTAccounts = async () => []
+  store.startBrowserLogin = async () => ({
+    flow_id: "chat-flow",
+    url: "https://auth.openai.com/",
+  })
+  store.finishBrowserLogin = async (provider, flow, code) => {
+    expect([provider, flow, code]).toEqual(["chatgpt", "chat-flow", undefined])
+  }
+  store.openDialog({ type: "connect" })
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 100,
+    height: 30,
+  })
+  try {
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Continue with ChatGPT")
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Add a ChatGPT account")
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("https://auth.openai.com/")
+    expect(setup.captureCharFrame()).not.toContain("Key:")
+    setup.mockInput.pressEnter()
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("You're using your ChatGPT plan")
   } finally {
     setup.renderer.destroy()
   }
@@ -1011,7 +1100,7 @@ test("connect wizard offers to create the default provider catalog", async () =>
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
     expect(frame).toContain("No providers are configured")
-    expect(frame).toContain("Press Enter to create the default provider catalog")
+    expect(frame).toContain("Press Enter to add the built-in provider presets")
   } finally {
     setup.renderer.destroy()
   }

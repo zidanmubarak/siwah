@@ -177,6 +177,42 @@ test("tool progress preserves card identity, expansion and readable terminal sta
   }
 })
 
+test("Escape cancels an active run even when an inline picker or permission owns focus", async () => {
+  const store = readyStore()
+  let aborted = 0
+  store.abort = async () => {
+    aborted += 1
+  }
+  store.running(true)
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 100,
+    height: 30,
+  })
+  try {
+    await setup.renderOnce()
+    setup.mockInput.typeText("@draft")
+    await setup.renderOnce()
+    setup.mockInput.pressEscape()
+    await settle()
+    expect(aborted).toBe(1)
+    expect(store.promptText()).toBe("@draft")
+
+    store.permission({
+      requestId: "pending",
+      tool: "bash",
+      kind: "bash",
+      preview: "fixture",
+      choices: ["deny"],
+    })
+    await setup.renderOnce()
+    setup.mockInput.pressEscape()
+    await settle()
+    expect(aborted).toBe(2)
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
 test("manual scroll owns the viewport through delta, completion, and explicit jump", async () => {
   const store = readyStore()
   store.messages([
@@ -195,7 +231,12 @@ test("manual scroll owns the viewport through delta, completion, and explicit ju
     const transcript = scroll as ScrollBoxRenderable
     transcript.scrollTo(Infinity)
     await setup.renderOnce()
+    const latest = transcript.scrollTop
     expect(setup.captureCharFrame()).not.toContain("↓ latest")
+    await setup.mockMouse.scroll(5, 5, "up")
+    expect(latest - transcript.scrollTop).toBeGreaterThan(1)
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("↓ latest")
     setup.mockInput.typeText("keep draft")
     setup.mockInput.pressKey("\x1b[5~")
     await setup.renderOnce()
@@ -335,7 +376,7 @@ test("resize with long Unicode metadata retains the draft and critical footer fi
       const frame = setup.captureCharFrame()
       expect(frame).toContain("preserve this draft")
       expect(frame).toContain("reconnecting")
-      expect(frame).toContain("$0.000000")
+      expect(frame).toContain("cost —")
       expect(frame).toContain("ctx")
       expect(store.promptText()).toBe("preserve this draft")
     }
