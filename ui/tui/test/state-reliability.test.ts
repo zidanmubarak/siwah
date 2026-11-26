@@ -685,3 +685,27 @@ test("late corrections are visible after hydration and are not duplicated by rep
     { id: correction.id, content: correction.content, unapplied: true },
   ])
 })
+
+test("a successful sign-in survives a provider catalog error", async () => {
+  const store = ready({
+    authLogin: async () => ({ ok: true }),
+    authStatus: async () => ({
+      providers: [
+        {
+          provider: "chatgpt",
+          scheme: "bearer",
+          env: null,
+          env_set: false,
+          file_set: true,
+          browser_login: true,
+          browser_method: "chatgpt",
+        },
+      ],
+    }),
+    models: async () => ({
+      providers: [{ provider: "chatgpt", models: [], error: "catalog unavailable" }],
+    }),
+  })
+  await expect(store.login("chatgpt", "secret")).resolves.toBeUndefined()
+  expect(store.toasts().some((toast) => toast.text.includes("catalog unavailable"))).toBe(true)
+})

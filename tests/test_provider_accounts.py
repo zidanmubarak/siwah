@@ -14,7 +14,7 @@ from siwah.core.storage import Store
 from siwah.core.types import ChatRequest, Message, ToolCall, ToolSpec
 from siwah.providers.base import ProviderError
 from siwah.providers.openai_chat import OpenAIChatAdapter, normalize_usage
-from siwah.providers.openai_responses import OpenAIResponsesAdapter
+from siwah.providers.openai_responses import OpenAIResponsesAdapter, _payload
 from siwah.providers.openrouter_auth import OpenRouterLogin, supports_browser_login
 from siwah.server.app import create_app
 from siwah.server.runtime import DaemonRuntime
@@ -119,6 +119,11 @@ async def test_chatgpt_plan_lists_models_and_streams_tools_with_provider_usage()
         "call_id": "call_1",
         "arguments": '{"path":"README.md"}',
     }
+    reasoning = {
+        "type": "reasoning",
+        "id": "rs_fixture",
+        "encrypted_content": "encrypted-reasoning",
+    }
 
     def api(request):
         assert request.headers["Authorization"] == "Bearer fixture-access-token"
@@ -153,11 +158,16 @@ async def test_chatgpt_plan_lists_models_and_streams_tools_with_provider_usage()
         assert payload["tools"][0]["tools"][0]["name"] == "read_file"
         return _sse(
             {"type": "response.output_text.delta", "delta": "Reading."},
-            {"type": "response.output_item.done", "output_index": 0, "item": tool},
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": reasoning,
+            },
+            {"type": "response.output_item.done", "output_index": 1, "item": tool},
             {
                 "type": "response.completed",
                 "response": {
-                    "output": [tool],
+                    "output": [reasoning, tool],
                     "usage": {
                         "input_tokens": 95,
                         "output_tokens": 47,
@@ -204,11 +214,29 @@ async def test_chatgpt_plan_lists_models_and_streams_tools_with_provider_usage()
         await adapter.aclose()
     assert result.text == "Reading."
     assert result.tool_calls[0].arguments == {"path": "README.md"}
+    assert result.provider_items == [reasoning]
     assert result.usage.input_tokens == 95
     assert result.usage.output_tokens == 47
     assert result.usage.reasoning_tokens == 23
     assert result.usage.cache_read_tokens == 55
     assert not result.usage.cost_reported
+
+    followup = _payload(
+        ChatRequest(
+            model="plan-model",
+            messages=[
+                Message(
+                    role="assistant",
+                    tool_calls=[ToolCall(id="call_1", name="read_file")],
+                    provider_items=result.provider_items,
+                ),
+                Message(role="tool", tool_call_id="call_1", content="Result."),
+            ],
+        )
+    )
+    assert followup["input"][0]["type"] == "reasoning"
+    assert followup["input"][1]["type"] == "function_call"
+    assert followup["input"][2]["type"] == "function_call_output"
 
 
 @pytest.mark.asyncio
@@ -289,6 +317,39 @@ async def test_chat_catalog_filters_other_protocols_and_reads_direct_model_limit
 
 
 @pytest.mark.asyncio
+async def test_openrouter_catalog_reads_supported_efforts(tmp_path):
+    def api(_request):
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "router-model",
+                        "reasoning": {
+                            "supported_efforts": ["low", "high", "none"],
+                        },
+                    }
+                ]
+            },
+        )
+
+    adapter = OpenAIChatAdapter(
+        "openrouter",
+        ProviderConfig(
+            base_url="https://openrouter.ai/api/v1",
+            models_url="https://openrouter.ai/api/v1/models",
+            auth=AuthConfig(scheme="none"),
+        ),
+        AuthStore(tmp_path / "auth.json"),
+        transport=httpx.MockTransport(api),
+    )
+    try:
+        [model] = await adapter.list_models()
+        assert model.efforts == ["low", "high"]
+    finally:
+        await adapter.aclose()
+
+
 async def test_direct_deepseek_replays_thinking_and_ignores_unsupported_effort(tmp_path):
     def api(request):
         if request.method == "GET":

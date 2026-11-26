@@ -691,10 +691,15 @@ def create_app(
         tags=["siwah"],
     )
     async def chatgpt_accounts() -> ChatGPTAccountsResponse:
+        try:
+            accounts = require_runtime().registry.chatgpt_auth.accounts()
+        except AuthError as exc:
+            raise HTTPException(
+                400, detail={"code": "auth_store_error", "message": str(exc)}
+            ) from exc
         return ChatGPTAccountsResponse(
             accounts=[
-                ChatGPTAccount.model_validate(account, from_attributes=True)
-                for account in require_runtime().registry.chatgpt_auth.accounts()
+                ChatGPTAccount.model_validate(account, from_attributes=True) for account in accounts
             ]
         )
 

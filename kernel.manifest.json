@@ -60,10 +60,10 @@
     "src/siwah/adapt/worktree.py": "40edc6ede3816722382d01deda86543017655f0cdaf0423efbab51d5c57cae96",
     "src/siwah/auth.py": "51228d3998265b0aa5bb0e78bcd4a72d058f245ab070c862a68d68e5167ccfe2",
     "src/siwah/cli/__init__.py": "0badf25a27f3a40d0857b6160dab6901dae1a15f338eac402afd3131fd3d55d3",
-    "src/siwah/cli/main.py": "157aea392e8f958efc275c19c17b9b419892e202c1011197a9c3e1fbb67a7d46",
+    "src/siwah/cli/main.py": "e947235d8d079dc8bf99b16a4ea82777fb99b037f2482162c3cb7dd2a2e0450b",
     "src/siwah/cli/plain_ui.py": "64dae72af7e63cc69230547a29efef1ed94378eea56ca40e7b305a69fb1612ed",
     "src/siwah/cli/supervise.py": "7589cdde4722d0ed50be0a781d0df3f2a217fac47e5ae788c2160804cde13ddd",
-    "src/siwah/config.py": "dceaab1ba6154f0430caa6815efcfbf71353efa99a5047a85326d08ba2602990",
+    "src/siwah/config.py": "5263ed8430e743bc3606e983e17ad5ca3bfb0434d1056d47dc290a1dccd68758",
     "src/siwah/eval/__init__.py": "46c4d5e666c489f8642076df3f3ba8b1e70b4be78cfc1b5a4feb16f275e2a07f",
     "src/siwah/eval/mock.py": "fe64c2d815cec2ac98629597dce29395c6e3ccf692f3c07f038da47b8681502a",
     "src/siwah/eval/models.py": "a0ebd5908d8f0bbc1fded2c2db3ea538a6fb922443f48c25add55164a617a21b",
@@ -118,6 +118,6 @@
     "tests/kernel/test_snapshot.py": "327c3e472e0d69b7d909699fdafe052846232a87c1a58b5d1a9bc654d9fabaf9",
     "tests/kernel/test_supervisor.py": "72d7efbd67d9129d6e2a18244b303a736d1041e6595c2720f0aa5358b3faf791"
   },
-  "hash": "ed3b67555b028b8e8bf7e22698f638f11a13657f876a7eaead79ab33979fd544",
+  "hash": "92f28ef7dfea24c9ea61dbfdd9867505a7581693b9213da887d010065d745c1a",
   "version": 1
 }

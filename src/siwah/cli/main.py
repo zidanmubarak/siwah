@@ -33,6 +33,7 @@ from ..config import (
     ConfigError,
     ModelRef,
     add_default_providers,
+    default_provider_names,
     load_config,
     update_budget_config,
 )
@@ -950,18 +951,26 @@ def auth_login(
         typer.echo(f"Config error: {exc}", err=True)
         raise typer.Exit(2) from exc
     name = provider
-    if name and name not in config.providers:
+    if name is None:
         try:
             config = add_default_providers()
         except (OSError, ConfigError) as exc:
             typer.echo(f"Config error: {exc}", err=True)
             raise typer.Exit(2) from exc
-    if name is None:
         if len(config.providers) == 1:
             name = next(iter(config.providers))
         else:
             typer.echo("Configured providers: " + ", ".join(config.providers))
             name = typer.prompt("Provider name")
+    elif name not in config.providers:
+        if name not in default_provider_names():
+            typer.echo(f"Unknown provider '{name}'. Add it to {config_path()} first.", err=True)
+            raise typer.Exit(2)
+        try:
+            config = add_default_providers()
+        except (OSError, ConfigError) as exc:
+            typer.echo(f"Config error: {exc}", err=True)
+            raise typer.Exit(2) from exc
     if name not in config.providers:
         typer.echo(f"Unknown provider '{name}'. Add it to {config_path()} first.", err=True)
         raise typer.Exit(2)
@@ -1001,6 +1010,13 @@ def auth_login(
     typer.echo(f"Saved credential for {name} in {path}")
 
 
+def _chatgpt_connected() -> bool:
+    try:
+        return ChatGPTAuth().connected()
+    except AuthError:
+        return False
+
+
 async def _chatgpt_login(account: str | None) -> None:
     auth = ChatGPTAuth()
     try:
@@ -1030,7 +1046,11 @@ def auth_status() -> None:
     store = AuthStore()
     for name, provider in config.providers.items():
         if supports_chatgpt_login(provider):
-            accounts = ChatGPTAuth().accounts()
+            try:
+                accounts = ChatGPTAuth().accounts()
+            except AuthError as exc:
+                typer.echo(f"{name}: {exc}", err=True)
+                continue
             if not accounts:
                 typer.echo(f"{name}: sign in with ChatGPT to add an account")
             for account in accounts:
@@ -1058,7 +1078,11 @@ def auth_logout(
     account: str | None = typer.Option(None, "--account", help="Sign out a saved ChatGPT account."),
 ) -> None:
     """Remove a stored credential or sign out of ChatGPT."""
-    preset = load_config().providers.get(provider)
+    try:
+        config = load_config()
+    except ConfigError:
+        config = None
+    preset = config.providers.get(provider) if config is not None else None
     if preset is not None and supports_chatgpt_login(preset):
         try:
             revoked = asyncio.run(ChatGPTAuth().sign_out(account))
@@ -1107,6 +1131,8 @@ def models_list(
         item = config.providers[name]
         if item.auth.scheme == "none":
             return True
+        if supports_chatgpt_login(item):
+            return _chatgpt_connected()
         if item.auth.env and os.environ.get(item.auth.env):
             return True
         return auth_store.configured(name)
@@ -2053,10 +2079,18 @@ def doctor() -> None:
     for name, provider in config.providers.items():
         env_name = provider.auth.env
         env_set = bool(env_name and os.environ.get(env_name))
-        console.print(
-            f"provider {name}: {provider.api}, credential="
-            f"{'env' if env_set else ('file' if store.configured(name) else 'missing')}"
+        credential = (
+            "chatgpt"
+            if supports_chatgpt_login(provider) and _chatgpt_connected()
+            else "missing"
+            if supports_chatgpt_login(provider)
+            else "env"
+            if env_set
+            else "file"
+            if store.configured(name)
+            else "missing"
         )
+        console.print(f"provider {name}: {provider.api}, credential={credential}")
     try:
         store_db = Store()
         report = inspect_home(store_db)

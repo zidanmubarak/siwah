@@ -34,6 +34,8 @@ class Issuer:
         self.refreshes = 0
         self.revoke_status = 200
         self.revoked: list[str] = []
+        self.refresh_error: str | None = None
+        self.omit_refresh = False
 
     def payload(self, **overrides: str | int) -> dict[str, str | int]:
         return {
@@ -88,10 +90,12 @@ class Issuer:
             assert form["refresh_token"] == "refresh-secret"
             assert "scope" not in form
             await asyncio.sleep(0.06)
-            return httpx.Response(
-                200,
-                json=self.payload(access_token="rotated-access", refresh_token="rotated-refresh"),
-            )
+            if self.refresh_error is not None:
+                return httpx.Response(400, json={"error": self.refresh_error})
+            payload = self.payload(access_token="rotated-access", refresh_token="rotated-refresh")
+            if self.omit_refresh:
+                payload.pop("refresh_token")
+            return httpx.Response(200, json=payload)
         challenge = base64.urlsafe_b64encode(
             hashlib.sha256(form["code_verifier"].encode()).digest()
         )
@@ -213,3 +217,76 @@ async def test_chatgpt_refresh_serializes_rotating_credentials_and_revoke_clears
         assert token not in path.read_text(encoding="utf-8")
     with pytest.raises(AuthError, match="Continue with ChatGPT"):
         await first.access_token()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "invalid_grant",
+        "invalid_refresh_token",
+        "token_expired",
+        "refresh_token_expired",
+        "refresh_token_invalidated",
+        "refresh_token_reused",
+        "invalid_client",
+    ],
+)
+async def test_rejected_refresh_token_clears_the_account(tmp_path, code):
+    issuer = Issuer()
+    issuer.refresh_error = code
+    auth = issuer.auth(tmp_path / "auth.json")
+    attempt = await auth.begin()
+    issuer.query(attempt)
+    assert (await issuer.callback(client_id="oaiapp_refresh")).status_code == 200
+    await auth.finish(attempt.id)
+    data = json.loads(auth.path.read_text(encoding="utf-8"))
+    data["accounts"]["oaiapp_refresh"]["tokens"]["expires_at"] = time.time() - 1
+    auth.path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(AuthError, match="expired or been revoked"):
+        await auth.access_token()
+    assert issuer.refreshes == 1
+    [account] = auth.accounts()
+    assert account.connected is False
+    with pytest.raises(AuthError, match="Continue with ChatGPT"):
+        await auth.access_token()
+    assert issuer.refreshes == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_keeps_the_previous_refresh_token_when_omitted(tmp_path):
+    issuer = Issuer()
+    issuer.omit_refresh = True
+    auth = issuer.auth(tmp_path / "auth.json")
+    attempt = await auth.begin()
+    issuer.query(attempt)
+    assert (await issuer.callback(client_id="oaiapp_refresh")).status_code == 200
+    await auth.finish(attempt.id)
+    data = json.loads(auth.path.read_text(encoding="utf-8"))
+    data["accounts"]["oaiapp_refresh"]["tokens"]["expires_at"] = time.time() - 1
+    auth.path.write_text(json.dumps(data), encoding="utf-8")
+
+    assert await auth.access_token() == "rotated-access"
+    assert await auth.sign_out()
+    assert issuer.revoked == ["refresh-secret"]
+
+
+def test_credential_write_retries_a_shared_replace(tmp_path, monkeypatch):
+    from siwah.providers.chatgpt_auth import _Store
+
+    auth = ChatGPTAuth(tmp_path / "auth.json")
+    real_replace = os.replace
+    calls = 0
+
+    def flaky_replace(source, target):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise PermissionError("file is in use")
+        real_replace(source, target)
+
+    monkeypatch.setattr("siwah.providers.chatgpt_auth.os.replace", flaky_replace)
+    auth._write(_Store())
+    assert calls == 3
+    assert auth._read().model_dump() == _Store().model_dump()

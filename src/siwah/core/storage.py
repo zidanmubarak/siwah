@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS messages (
     attachments TEXT NOT NULL DEFAULT '[]',
     tool_calls TEXT NOT NULL DEFAULT '[]',
     tool_call_id TEXT,
+    provider_items TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_session_seq ON messages(session_id, seq);
@@ -185,6 +186,10 @@ class Store:
             if "attachments" not in columns:
                 self._connection.execute(
                     "ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'"
+                )
+            if "provider_items" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE messages ADD COLUMN provider_items TEXT NOT NULL DEFAULT '[]'"
                 )
             tool_columns = {
                 str(row[1]) for row in self._connection.execute("PRAGMA table_info(tool_calls)")
@@ -321,7 +326,8 @@ class Store:
             seq = self._next_message_seq(session_id)
             self._connection.execute(
                 "INSERT INTO messages (id, session_id, seq, role, content, reasoning, attachments,"
-                " tool_calls, tool_call_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " tool_calls, tool_call_id, provider_items, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     message_id,
                     session_id,
@@ -336,6 +342,7 @@ class Store:
                         [call.model_dump() for call in message.tool_calls], ensure_ascii=False
                     ),
                     message.tool_call_id,
+                    json.dumps(message.provider_items, ensure_ascii=False),
                     now,
                 ),
             )
@@ -397,6 +404,7 @@ class Store:
                     attachments=[MessageAttachment.model_validate(item) for item in attachments],
                     tool_calls=[ToolCall.model_validate(call) for call in tool_calls],
                     tool_call_id=row["tool_call_id"],
+                    provider_items=json.loads(row["provider_items"] or "[]"),
                 )
             )
         return messages
@@ -433,6 +441,7 @@ class Store:
                     attachments=[MessageAttachment.model_validate(item) for item in attachments],
                     tool_calls=[ToolCall.model_validate(call) for call in tool_calls],
                     tool_call_id=row["tool_call_id"],
+                    provider_items=json.loads(row["provider_items"] or "[]"),
                 )
             )
         return [

@@ -17,7 +17,7 @@ from typing import Any
 from ..adapt.observer import _CORRECTION_HINTS
 from ..adapt.state import load_state
 from ..adapt.trigger import EvolutionTrigger
-from ..auth import AuthStore
+from ..auth import AuthError, AuthStore
 from ..config import Config, ConfigError, update_agent_effort
 from ..core.checkpoints import CheckpointError, CheckpointManager
 from ..core.context import (
@@ -599,10 +599,16 @@ class DaemonRuntime:
         if config.auth.scheme == "none":
             return True
         if supports_chatgpt_login(config):
-            return self.registry.chatgpt_auth.connected()
+            return self._chatgpt_connected()
         if config.auth.env and os.environ.get(config.auth.env):
             return True
         return self.auth.configured(provider)
+
+    def _chatgpt_connected(self) -> bool:
+        try:
+            return self.registry.chatgpt_auth.connected()
+        except AuthError:
+            return False
 
     async def reload_config(self, config: Config) -> None:
         """Apply a newly written config without restarting the daemon."""
@@ -1156,7 +1162,7 @@ class DaemonRuntime:
                     "scheme": provider.auth.scheme,
                     "env": env_name,
                     "env_set": bool(env_name and os.environ.get(env_name)),
-                    "file_set": self.registry.chatgpt_auth.connected()
+                    "file_set": self._chatgpt_connected()
                     if chatgpt
                     else self.auth.configured(name),
                     "browser_login": chatgpt or openrouter,

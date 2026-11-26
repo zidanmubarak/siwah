@@ -81,6 +81,41 @@ async def test_stale_running_session_is_reported_idle(config, store: Store, samp
 
 
 @pytest.mark.asyncio
+async def test_corrupt_chatgpt_store_is_reported_without_a_server_error(
+    config, store: Store, tmp_path: Path
+):
+    chatgpt = tmp_path / "home" / "chatgpt" / "auth.json"
+    chatgpt.parent.mkdir(parents=True)
+    chatgpt.write_text("{broken", encoding="utf-8")
+    cfg = config.model_copy(
+        update={
+            "providers": {
+                **config.providers,
+                "chatgpt": ProviderConfig(
+                    api="openai_responses",
+                    base_url="https://api.openai.com/v1",
+                    models_url="https://api.openai.com/v1/models",
+                    auth=AuthConfig(browser="chatgpt"),
+                ),
+            }
+        }
+    )
+    runtime = DaemonRuntime(cfg, store=store)
+    app = create_app(cfg, runtime=runtime, token="test-token")
+    headers = {"Authorization": "Bearer test-token"}
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        status = await client.get("/v1/auth/status", headers=headers)
+        assert status.status_code == 200, status.text
+        row = next(item for item in status.json()["providers"] if item["provider"] == "chatgpt")
+        assert row["file_set"] is False
+        accounts = await client.get("/v1/auth/chatgpt/accounts", headers=headers)
+        assert accounts.status_code == 400
+        assert accounts.json()["error"]["code"] == "auth_store_error"
+
+
+@pytest.mark.asyncio
 async def test_abort_acknowledges_before_cleanup_and_publishes_terminal_event(
     config, store: Store, sample_repo: Path, monkeypatch: pytest.MonkeyPatch
 ):

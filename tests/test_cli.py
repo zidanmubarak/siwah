@@ -141,6 +141,105 @@ auth = { scheme = "bearer", env = "MOCK_API_KEY" }
     assert "secret-key" not in status.stdout
 
 
+def test_auth_login_no_argument_adds_missing_presets(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[providers.custom]
+api = "openai_chat"
+base_url = "https://custom.invalid/v1"
+auth = { scheme = "none" }
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SIWAH_CONFIG", str(config))
+    result = CliRunner().invoke(app, ["auth", "login"], input="custom\n")
+    assert result.exit_code == 0, result.output
+    text = config.read_text(encoding="utf-8")
+    assert "[providers.custom]" in text
+    assert "[providers.chatgpt]" in text
+
+
+def test_auth_login_unknown_preset_does_not_write_config(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[providers.custom]
+api = "openai_chat"
+base_url = "https://custom.invalid/v1"
+auth = { scheme = "none" }
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SIWAH_CONFIG", str(config))
+    before = config.read_text(encoding="utf-8")
+    result = CliRunner().invoke(app, ["auth", "login", "chatgp"])
+    assert result.exit_code == 2
+    assert "Unknown provider" in result.output
+    assert config.read_text(encoding="utf-8") == before
+
+
+def test_auth_logout_survives_a_broken_config(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.toml"
+    config.write_text("not valid toml [[[", encoding="utf-8")
+    monkeypatch.setenv("SIWAH_CONFIG", str(config))
+    store = cli_main.AuthStore()
+    store.save_key("mock", "secret-key")
+    result = CliRunner().invoke(app, ["auth", "logout", "mock"])
+    assert result.exit_code == 0, result.output
+    assert store.get_key("mock", AuthConfig()) is None
+
+
+def test_models_list_accepts_a_chatgpt_account(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[providers.chatgpt]
+api = "openai_responses"
+base_url = "https://api.openai.com/v1"
+models_url = "https://api.openai.com/v1/models"
+auth = { scheme = "bearer", browser = "chatgpt" }
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SIWAH_CONFIG", str(config))
+    monkeypatch.setattr(cli_main, "_chatgpt_connected", lambda: True)
+
+    async def list_models(_self, _provider):
+        return []
+
+    monkeypatch.setattr(cli_main.ProviderRegistry, "list_models", list_models)
+    result = CliRunner().invoke(app, ["models", "list"])
+    assert result.exit_code == 0, result.output
+    assert "credential missing" not in result.output
+
+
+def test_auth_status_reports_a_corrupt_chatgpt_store(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+[providers.chatgpt]
+api = "openai_responses"
+base_url = "https://api.openai.com/v1"
+models_url = "https://api.openai.com/v1/models"
+auth = { scheme = "bearer", browser = "chatgpt" }
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SIWAH_CONFIG", str(config))
+    path = tmp_path / "home" / "chatgpt" / "auth.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{broken", encoding="utf-8")
+    result = CliRunner().invoke(app, ["auth", "status"])
+    assert result.exit_code == 0
+    assert "Cannot read the local ChatGPT credential store" in result.output
+
+
 def test_run_requires_model(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("SIWAH_CONFIG", raising=False)

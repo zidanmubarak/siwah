@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..auth import AuthError
 from ..config import Config, ConfigError
 from ..core.checkpoints import CheckpointManager
 from ..core.context import (
@@ -249,6 +250,26 @@ class AgentLoop:
     def _context_limit(self, model_ref: str | None, override: str | None) -> int | None:
         return self._context_window(override or model_ref) or self.config.context.max_context_tokens
 
+    async def _warm_catalog(self, model_ref: str | None) -> None:
+        """Best-effort catalog load so context limits work in non-interactive runs."""
+        if not model_ref:
+            return
+        provider, _, model = model_ref.partition("/")
+        if not provider or not model:
+            return
+        registry = self.router.registry
+        if not isinstance(registry, ProviderRegistry):
+            return
+        if registry.cached_model(provider, model) is not None:
+            return
+        preset = self.config.providers.get(provider)
+        if preset is None or preset.api != "openai_responses" or not preset.models_url:
+            return
+        try:
+            await registry.list_models(provider)
+        except (AuthError, ConfigError, ProviderError, NotImplementedError, OSError, ValueError):
+            return
+
     async def _emit_context(
         self,
         emit: EventSink,
@@ -318,6 +339,7 @@ class AgentLoop:
             or (self.config.agent.effort)
         )
         profile = self._profile(model_ref)
+        await self._warm_catalog(model_ref)
         policy = self._policies.get(session.id)
         if (
             policy is None
@@ -682,6 +704,7 @@ class AgentLoop:
                     content=outcome.text or None,
                     reasoning=outcome.reasoning or None,
                     tool_calls=outcome.tool_calls,
+                    provider_items=outcome.provider_items,
                 )
                 self.store.append_message(session.id, assistant_message, message_id=assistant_id)
                 self.store.record_usage(

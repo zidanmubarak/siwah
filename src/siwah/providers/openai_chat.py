@@ -568,11 +568,15 @@ def _model_info(entry: dict[str, Any]) -> ModelInfo:
     tools: dict[str, Any] = tools_raw if isinstance(tools_raw, dict) else {}
     reasoning_raw = capabilities.get("reasoning")
     reasoning: dict[str, Any] = reasoning_raw if isinstance(reasoning_raw, dict) else {}
+    native_reasoning_raw = entry.get("reasoning")
+    native_reasoning: dict[str, Any] = (
+        native_reasoning_raw if isinstance(native_reasoning_raw, dict) else {}
+    )
     native_effort = entry.get("effort")
     efforts_raw = (
-        native_effort.get("supported_levels")
-        if isinstance(native_effort, dict)
-        else reasoning.get("effort")
+        (native_effort.get("supported_levels") if isinstance(native_effort, dict) else None)
+        or native_reasoning.get("supported_efforts")
+        or reasoning.get("supported_efforts", reasoning.get("effort"))
     )
     efforts = (
         [value for value in efforts_raw if value in EFFORT_VALUES]
@@ -590,6 +594,8 @@ def _model_info(entry: dict[str, Any]) -> ModelInfo:
     supported_parameters = entry.get("supported_parameters")
     supports_tools = tools.get("supported")
     supports_reasoning = reasoning.get("supported")
+    if not isinstance(supports_reasoning, bool):
+        supports_reasoning = native_reasoning.get("supported")
     if efforts and not isinstance(supports_reasoning, bool):
         supports_reasoning = True
     if isinstance(supported_parameters, list):

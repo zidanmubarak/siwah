@@ -724,7 +724,10 @@ export class TuiStore {
     await this.reloadAuth()
     await this.reloadModels()
     const catalog = this.models()?.providers?.find((item) => item.provider === provider)
-    if (catalog?.error) throw new Error(catalog.error)
+    if (catalog?.error) {
+      this.notify(`Connected ${provider}; catalog unavailable: ${catalog.error}`, "warning")
+      return
+    }
     if (!this.session()) {
       const first = pickChatModel(provider, catalog?.models ?? [])
       if (first) this.pendingModel(first)

@@ -43,6 +43,21 @@ class ChatGPTSignInPending(AuthError):
     """The browser has yet to return the authorization result."""
 
 
+class ChatGPTRefreshRejected(AuthError):
+    """The saved refresh token is no longer usable and the account must reconnect."""
+
+
+_UNUSABLE_REFRESH_ERRORS = {
+    "invalid_grant",
+    "invalid_refresh_token",
+    "token_expired",
+    "refresh_token_expired",
+    "refresh_token_invalidated",
+    "refresh_token_reused",
+    "invalid_client",
+}
+
+
 class _Tokens(BaseModel):
     access_token: str = Field(min_length=1, repr=False)
     refresh_token: str = Field(min_length=1, repr=False)
@@ -129,7 +144,16 @@ class ChatGPTAuth:
                 handle.write(store.model_dump_json().encode("utf-8"))
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(scratch, self.path)
+            for attempt in range(5):
+                try:
+                    os.replace(scratch, self.path)
+                    break
+                except PermissionError:
+                    # Windows rejects replace while a reader has the file open.
+                    # Readers finish quickly; retry briefly before failing.
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.02)
         except OSError:
             raise AuthError("Cannot update the local ChatGPT credential store.") from None
         finally:
@@ -363,15 +387,23 @@ class ChatGPTAuth:
             if _usable(old):
                 return old.access_token
             async with self._http() as http:
-                payload = await _exchange(
-                    http,
-                    {
-                        "grant_type": "refresh_token",
-                        "client_id": client_id,
-                        "refresh_token": old.refresh_token,
-                        "resource": CHATGPT_RESOURCE,
-                    },
-                )
+                try:
+                    payload = await _exchange(
+                        http,
+                        {
+                            "grant_type": "refresh_token",
+                            "client_id": client_id,
+                            "refresh_token": old.refresh_token,
+                            "resource": CHATGPT_RESOURCE,
+                        },
+                    )
+                except ChatGPTRefreshRejected as exc:
+                    # A rejected refresh token cannot be retried. Clear it so
+                    # the account is no longer advertised as connected and the
+                    # user can reconnect with the saved client ID.
+                    account.tokens = None
+                    self._write(store)
+                    raise AuthError(str(exc)) from None
                 tokens = _parse_tokens(payload, old)
                 if tokens.id_token != old.id_token:
                     identity = await _verify_identity(http, tokens.id_token, client_id)
@@ -422,8 +454,9 @@ async def _exchange(http: httpx.AsyncClient, form: dict[str, str]) -> dict[str, 
     if not isinstance(payload, dict):
         raise AuthError("ChatGPT returned an invalid token response.")
     if response.status_code != 200:
-        if payload.get("error") == "invalid_grant":
-            raise AuthError(
+        code = payload.get("error")
+        if code in _UNUSABLE_REFRESH_ERRORS:
+            raise ChatGPTRefreshRejected(
                 "The ChatGPT sign-in has expired or been revoked. Reconnect the account."
             )
         raise AuthError(f"ChatGPT sign-in returned HTTP {response.status_code}. Try again.")
@@ -451,10 +484,13 @@ def _parse_tokens(payload: dict[str, Any], previous: _Tokens | None = None) -> _
         except (ValueError, OverflowError):
             earliest = None
     try:
+        refresh_token = payload.get("refresh_token")
+        if not isinstance(refresh_token, str) or not refresh_token:
+            refresh_token = previous.refresh_token if previous else None
         return _Tokens.model_validate(
             {
                 "access_token": payload.get("access_token"),
-                "refresh_token": payload.get("refresh_token"),
+                "refresh_token": refresh_token,
                 "id_token": payload.get("id_token", previous.id_token if previous else None),
                 "expires_at": time.time() + expires,
                 "refresh_at": earliest if isinstance(earliest, int | float) else 0,

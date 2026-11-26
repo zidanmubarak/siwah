@@ -460,6 +460,11 @@ def add_default_providers() -> Config:
     return config
 
 
+def default_provider_names() -> set[str]:
+    """Return the provider names shipped in the default preset catalog."""
+    return set(tomllib.loads(default_config_text())["providers"])
+
+
 def update_budget_config(values: dict[str, object], path: Path | None = None) -> Path:
     """Replace the `[budget]` table with calibrated values.
 

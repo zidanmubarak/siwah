@@ -57,6 +57,7 @@ class Message(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     tool_call_id: str | None = None
     attachments: list[MessageAttachment] = Field(default_factory=list)
+    provider_items: list[dict[str, Any]] = Field(default_factory=list)
 
     def to_openai(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"role": self.role}
@@ -157,6 +158,7 @@ class StreamOutcome(BaseModel):
     usage: Usage = Field(default_factory=Usage)
     finish_reason: str | None = None
     raw_assistant: dict[str, Any] = Field(default_factory=dict)
+    provider_items: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ModelInfo(BaseModel):

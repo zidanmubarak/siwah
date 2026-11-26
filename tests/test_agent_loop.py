@@ -74,6 +74,30 @@ async def test_batched_reads_overlap_and_keep_message_order(
 
 
 @pytest.mark.asyncio
+async def test_warm_catalog_loads_models_for_non_interactive_context(config, store, monkeypatch):
+    cfg = config.model_copy(
+        update={
+            "providers": {
+                **config.providers,
+                "chatgpt": config.providers["mock"].model_copy(update={"api": "openai_responses"}),
+            }
+        }
+    )
+    adapter = ScriptedAdapter([outcome(text="Done.")], cfg.providers["chatgpt"])
+    loop = make_loop(cfg, store, adapter)
+    called: list[str] = []
+
+    async def list_models(provider: str):
+        called.append(provider)
+        return []
+
+    monkeypatch.setattr(loop.router.registry, "cached_model", lambda *_args: None)
+    monkeypatch.setattr(loop.router.registry, "list_models", list_models)
+    await loop._warm_catalog("chatgpt/model-a")
+    assert called == ["chatgpt"]
+
+
+@pytest.mark.asyncio
 async def test_e2e_mock_fixes_bug_and_runs_tests(config, store: Store, sample_repo: Path):
     adapter = ScriptedAdapter(
         [

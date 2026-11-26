@@ -131,6 +131,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         text: list[str] = []
         reasoning: list[str] = []
         partials: dict[int, dict[str, str]] = {}
+        provider_items: list[dict[str, Any]] = []
         completed = None
         try:
             async with self._client.stream(
@@ -183,6 +184,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                         )
                     elif kind == "response.output_item.done":
                         _add_call(partials, event.get("item"), event.get("output_index"))
+                        _add_reasoning(provider_items, event.get("item"))
                     elif kind == "response.completed":
                         completed = event.get("response")
                         break
@@ -210,6 +212,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             )
         for index, item in enumerate(completed.get("output") or []):
             _add_call(partials, item, index)
+            _add_reasoning(provider_items, item)
         usage = normalize_usage(completed.get("usage"), self.config.cost_field)
         calls = _assemble_tool_calls(partials)
         reason = "tool_calls" if calls else "stop"
@@ -223,6 +226,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             tool_calls=calls,
             usage=usage,
             finish_reason=reason,
+            provider_items=provider_items,
         )
 
 
@@ -255,6 +259,13 @@ def _plan_error(detail: Any) -> ProviderError | None:
     return None
 
 
+def _add_reasoning(items: list[dict[str, Any]], item: Any) -> None:
+    if not isinstance(item, dict) or item.get("type") != "reasoning":
+        return
+    if item not in items:
+        items.append(item)
+
+
 def _add_call(partials: dict[int, dict[str, str]], item: Any, index: Any) -> None:
     if (
         not isinstance(index, int)
@@ -277,6 +288,14 @@ def _add_call(partials: dict[int, dict[str, str]], item: Any, index: Any) -> Non
 def _payload(request: ChatRequest) -> dict[str, Any]:
     input_items: list[dict[str, Any]] = []
     for message in request.messages:
+        if message.role == "assistant" and message.provider_items:
+            # Stateless reasoning must be replayed in order before the
+            # assistant message and its function calls.
+            input_items.extend(
+                item
+                for item in message.provider_items
+                if isinstance(item, dict) and item.get("type") == "reasoning"
+            )
         if message.role == "tool":
             input_items.append(
                 {
