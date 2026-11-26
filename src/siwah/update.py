@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -186,6 +187,22 @@ def _apply_checkout(root: Path, *, rebuild_tui: bool) -> UpdateApplyResult:
 
     updated = _local_version(root) or current
     steps = [f"Fast-forwarded {behind} commit(s) from {upstream}."]
+    installed, install_steps = _reinstall_tool(root)
+    steps.extend(install_steps)
+    if not installed:
+        _clear_cache()
+        return UpdateApplyResult(
+            ok=False,
+            from_version=current,
+            to_version=updated,
+            detail=(
+                "Updated the source, but Python dependencies could not be installed. "
+                "Re-run the bootstrap installer or run `uv tool install --force "
+                f"--editable {root}`."
+            ),
+            restart_required=True,
+            steps=steps,
+        )
     if rebuild_tui:
         steps.extend(_rebuild_tui(root))
     _clear_cache()
@@ -348,6 +365,41 @@ def _rebuild_tui(root: Path) -> list[str]:
         return [*steps, f"Could not stage the TUI binary: {exc}"]
     steps.extend(("Rebuilt the TUI binary.", f"Staged {staged}; it activates on the next launch."))
     return steps
+
+
+def _reinstall_tool(root: Path) -> tuple[bool, list[str]]:
+    uv = _find_uv(root)
+    if uv is None:
+        return False, [
+            "uv was not found; Python dependencies were not installed. "
+            "Re-run the bootstrap installer."
+        ]
+    ok, output = _run(
+        [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            sys.executable,
+            "--editable",
+            str(root),
+        ],
+        cwd=root,
+        timeout=BUILD_TIMEOUT_SECONDS,
+    )
+    if not ok:
+        return False, [f"Python dependency install failed: {output}"]
+    return True, ["Reinstalled Python dependencies."]
+
+
+def _find_uv(root: Path) -> str | None:
+    candidates = [
+        shutil.which("uv"),
+        str(Path.home() / ".local" / "bin" / ("uv.exe" if os.name == "nt" else "uv")),
+        str(Path.home() / ".cargo" / "bin" / ("uv.exe" if os.name == "nt" else "uv")),
+        str(root / ".tools" / "uv" / ("uv.exe" if os.name == "nt" else "uv")),
+    ]
+    return next((path for path in candidates if path and Path(path).is_file()), None)
 
 
 def _find_bun(root: Path) -> str | None:

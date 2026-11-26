@@ -3,7 +3,7 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
-## [Unreleased]
+## [1.0.5] — 2026-11-26
 
 ### Added
 
@@ -24,6 +24,7 @@ Changelog, and the project uses semantic versioning.
 ### Fixed
 
 - Cancel active runs from the composer and permission prompt without waiting for daemon cleanup.
+- Reinstall Python dependencies when updating a source checkout.
 
 ## [1.0.4] — 2026-11-25
 

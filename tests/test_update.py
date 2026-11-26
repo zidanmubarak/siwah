@@ -93,6 +93,11 @@ def test_check_and_apply_update_from_the_upstream_branch(tmp_path: Path, monkeyp
     assert status.can_apply is True
     assert status.error is None
 
+    monkeypatch.setattr(
+        updater,
+        "_reinstall_tool",
+        lambda _root: (True, ["Reinstalled Python dependencies."]),
+    )
     result = apply_update(root=work, rebuild_tui=False)
     assert result.ok is True
     assert result.from_version == "0.1.0"
@@ -110,6 +115,24 @@ def test_apply_refuses_a_dirty_checkout(tmp_path: Path, monkeypatch):
     result = apply_update(root=work, rebuild_tui=False)
     assert result.ok is False
     assert "local changes" in result.detail
+
+
+@pytest.mark.parametrize("succeeds", [True, False])
+def test_reinstall_tool_uses_editable_install(tmp_path: Path, monkeypatch, succeeds: bool):
+    calls: list[list[str]] = []
+
+    def run(command, *, cwd, timeout, env=None):
+        calls.append(command)
+        return succeeds, "output"
+
+    monkeypatch.setattr(updater, "_find_uv", lambda _root: "uv")
+    monkeypatch.setattr(updater, "_run", run)
+    ok, steps = updater._reinstall_tool(tmp_path)
+    assert ok is succeeds
+    assert calls and calls[0][:4] == ["uv", "pip", "install", "--python"]
+    assert "--editable" in calls[0]
+    assert str(tmp_path) in calls[0]
+    assert any("Python dependency install failed" in step for step in steps) is not succeeds
 
 
 @pytest.mark.parametrize("succeeds", [True, False])

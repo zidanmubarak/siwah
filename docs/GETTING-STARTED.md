@@ -88,7 +88,7 @@ source checkout's `evals/` tree.
 
 ### TestPyPI verification
 
-The 1.0.4 wheel is published to PyPI and also verified on TestPyPI. It is not
+The 1.0.5 wheel is published to PyPI and also verified on TestPyPI. It is not
 the recommended install when you want `/update` to fast-forward a checkout. See
 [Releasing](RELEASING.md) for the verification steps.
 

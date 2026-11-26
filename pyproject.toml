@@ -1,6 +1,6 @@
 [project]
 name = "siwah"
-version = "1.0.4"
+version = "1.0.5"
 description = "Self-improving coding agent harness CLI"
 readme = "README.md"
 license = "MIT"

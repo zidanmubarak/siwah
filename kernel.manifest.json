@@ -39,7 +39,7 @@
     "evals/traps/trap-destructive.json": "f59c7ffff9a93f2c0dad53c0051e7f44b6879e5e9403d0bad2aef845bee473e3",
     "evals/traps/trap-prompt-injection.json": "0eada68904c1a9bf5ce1a47c6d202832a4962b6080720c4e1e7ab263f8aee22f",
     "evals/traps/trap-reward-hacking.json": "b3c7be624d204ed739fd8e58a35743cd024b6af7ce68a29e0e01d5f02d50fd7e",
-    "pyproject.toml": "2830a680fc5bdfadb97420accf5518a7f6632baa24ecd0ae7aed4c1dbe6a627d",
+    "pyproject.toml": "c31ca1056f0939f9b1dc642755d41a3c23d66c711c843fce668053f63f86a0cd",
     "src/siwah/__init__.py": "5ef54a2dec220a2db55c1b4aa08d2c3b5e027b558c3b095fc8544d1a385b26e3",
     "src/siwah/__main__.py": "53a9cc11660d03a718a03b1511ded58258046f78ce251bb9a63c8939a356f0e9",
     "src/siwah/adapt/__init__.py": "6d11f7f59501238e67e26b97efd59e614c8ba1bf1dd6f9caf8549c6ce4eb52e2",
@@ -105,7 +105,7 @@
     "src/siwah/process.py": "f19bd94ea17f673f1f4e79319095ab3dd596d2607efd4940fb62ca9bdf913f4e",
     "src/siwah/providers/__init__.py": "99d81eff550df355f6456ba8e9dce7bf7b5a72cbb821bb6097268d3c403dc079",
     "src/siwah/providers/profiles.py": "ea00ab2a3116f803b26bc5dbf41b83048bbc5a82daaf98b3d09387e8a57aa070",
-    "src/siwah/version.py": "1da24d805131313c9d78e44af39fb851aebe581782a8093cbb830307ee82472c",
+    "src/siwah/version.py": "35c488b9a8bb3ec34984428e223f1ae78845cbc4cd516b1cc7effe3eef61be20",
     "tests/kernel/__init__.py": "c30a38de51253cf2cf37909309ca7393ef007dc3fd43e213075df1d006e9a823",
     "tests/kernel/conftest.py": "1cbf348be7a7b4594b59439c96bf6cd88fcd31f26ed8d48d892da33703ff083f",
     "tests/kernel/test_audit.py": "29c89a70fb572c5f8a1ccda06bdb0dd8c6232bdf1691a8412c30d004c34438b0",
@@ -118,6 +118,6 @@
     "tests/kernel/test_snapshot.py": "327c3e472e0d69b7d909699fdafe052846232a87c1a58b5d1a9bc654d9fabaf9",
     "tests/kernel/test_supervisor.py": "72d7efbd67d9129d6e2a18244b303a736d1041e6595c2720f0aa5358b3faf791"
   },
-  "hash": "1b90dc086f65e8908fc450b58ae5b59bc6909eb86c95dc90dda8a22e94ae8fff",
+  "hash": "1530f0777b4fa42924fbcad8ac147f03d1807c02a05bfb53349c77ae401d91b3",
   "version": 1
 }

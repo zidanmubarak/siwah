@@ -201,6 +201,17 @@ is a development or older installer build. The managed copy takes precedence
 unless you set `SIWAH_TUI_BINARY`. The separate `siwah` command is the Python
 entry point installed by `uv tool install`.
 
+If a source update reports a missing module such as `filelock` or `jwt`, the
+previous version updated the checkout without installing its new dependencies.
+Repair it from the checkout:
+
+```bash
+uv tool install --force --editable ~/.siwah/src
+```
+
+Then restart `siwah`. Current releases run this dependency install as part of
+`siwah update --apply`.
+
 ### The screen is garbled or colors are wrong
 
 - Set `NO_COLOR=1` to select the monochrome theme.
@@ -211,7 +222,7 @@ entry point installed by `uv tool install`.
 - If resizing leaves artifacts, resize once more or restart the TUI; include the
   terminal and size in a report.
 
-macOS Terminal and iTerm2 are not verified for 1.0.4. See
+macOS Terminal and iTerm2 are not verified for 1.0.5. See
 [Terminal support](TERMINAL-SUPPORT.md).
 
 ### The TUI exits immediately

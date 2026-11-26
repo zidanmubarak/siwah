@@ -25,7 +25,7 @@ function installWarningLog(): void {
 installWarningLog()
 
 if (process.argv.includes("--version")) {
-  console.log("siwah-tui 1.0.4")
+  console.log("siwah-tui 1.0.5")
   process.exit(0)
 }
 

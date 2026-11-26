@@ -18,7 +18,7 @@
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/bun-1.3.14%2B-black.svg" alt="Bun 1.3.14+"></a>
 </p>
 
-> **Status:** `1.0.4` is the current public release. The source bootstrap is the
+> **Status:** `1.0.5` is the current public release. The source bootstrap is the
 > primary install; the same release is published to PyPI and verified from a
 > clean environment.
 
@@ -336,13 +336,13 @@ wall time. See [Evolution](docs/EVOLUTION.md).
 - The path guard is an **application-level guard**. A deliberately malicious
   `bash` command can still write outside the workspace unless the opt-in sandbox
   is configured. The local sandbox fallback is not isolation.
-- The 1.0.4 provider adapter is OpenAI Chat Completions-compatible only.
+- The 1.0.5 provider adapter is OpenAI Chat Completions-compatible only.
 - Evolution's canary and automatic rollback path is not end-to-end; production
   session sampling is not connected. Level 2 recovery from a delayed daemon boot
   failure is not fully journaled.
 - ACP is minimal: text prompts only, no client permission dialogs, no
   `loadSession`, and no filesystem/terminal methods.
-- macOS Terminal and iTerm2 were not verified for 1.0.4. Windows Terminal, tmux,
+- macOS Terminal and iTerm2 were not verified for 1.0.5. Windows Terminal, tmux,
   SSH, and Windows/WSL environments were verified. See
   [Terminal support](docs/TERMINAL-SUPPORT.md).
 - The full heldout suite is not public; the public samples are for format
@@ -401,7 +401,7 @@ and [Releasing](docs/RELEASING.md).
 
 ## Status and roadmap
 
-`1.0.4` is the current public release. The source bootstrap is the supported
+`1.0.5` is the current public release. The source bootstrap is the supported
 install. Near-term work focuses on connecting production canary sampling and
 rollback, completing delayed-boot recovery for Level 2, broader provider
 families, stronger isolation, and macOS terminal verification. No dates are
