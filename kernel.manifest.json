@@ -60,7 +60,7 @@
     "src/siwah/adapt/worktree.py": "40edc6ede3816722382d01deda86543017655f0cdaf0423efbab51d5c57cae96",
     "src/siwah/auth.py": "51228d3998265b0aa5bb0e78bcd4a72d058f245ab070c862a68d68e5167ccfe2",
     "src/siwah/cli/__init__.py": "0badf25a27f3a40d0857b6160dab6901dae1a15f338eac402afd3131fd3d55d3",
-    "src/siwah/cli/main.py": "e947235d8d079dc8bf99b16a4ea82777fb99b037f2482162c3cb7dd2a2e0450b",
+    "src/siwah/cli/main.py": "4dd9139cf0e590c00de5e8959d86d0eeab3648a7aee34946d012cc69969fb813",
     "src/siwah/cli/plain_ui.py": "64dae72af7e63cc69230547a29efef1ed94378eea56ca40e7b305a69fb1612ed",
     "src/siwah/cli/supervise.py": "7589cdde4722d0ed50be0a781d0df3f2a217fac47e5ae788c2160804cde13ddd",
     "src/siwah/config.py": "5263ed8430e743bc3606e983e17ad5ca3bfb0434d1056d47dc290a1dccd68758",
@@ -118,6 +118,6 @@
     "tests/kernel/test_snapshot.py": "327c3e472e0d69b7d909699fdafe052846232a87c1a58b5d1a9bc654d9fabaf9",
     "tests/kernel/test_supervisor.py": "72d7efbd67d9129d6e2a18244b303a736d1041e6595c2720f0aa5358b3faf791"
   },
-  "hash": "92f28ef7dfea24c9ea61dbfdd9867505a7581693b9213da887d010065d745c1a",
+  "hash": "1b90dc086f65e8908fc450b58ae5b59bc6909eb86c95dc90dda8a22e94ae8fff",
   "version": 1
 }

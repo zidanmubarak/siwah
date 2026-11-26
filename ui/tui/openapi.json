@@ -105,8 +105,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "openrouter",
-                  "chatgpt"
+                  "chatgpt",
+                  "openrouter"
                 ],
                 "type": "string"
               },
@@ -531,13 +531,13 @@
             "anyOf": [
               {
                 "enum": [
-                  "minimal",
-                  "low",
-                  "medium",
                   "high",
-                  "xhigh",
+                  "low",
                   "max",
-                  "off"
+                  "medium",
+                  "minimal",
+                  "off",
+                  "xhigh"
                 ],
                 "type": "string"
               },
@@ -1321,10 +1321,10 @@
         "properties": {
           "decision": {
             "enum": [
-              "once",
-              "session",
               "always",
-              "deny"
+              "deny",
+              "once",
+              "session"
             ],
             "title": "Decision",
             "type": "string"
@@ -2008,9 +2008,9 @@
           },
           "status": {
             "enum": [
-              "ok",
-              "error",
               "cancelled",
+              "error",
+              "ok",
               "skipped"
             ],
             "title": "Status",
@@ -2110,13 +2110,13 @@
             "anyOf": [
               {
                 "enum": [
-                  "minimal",
-                  "low",
-                  "medium",
                   "high",
-                  "xhigh",
+                  "low",
                   "max",
-                  "off"
+                  "medium",
+                  "minimal",
+                  "off",
+                  "xhigh"
                 ],
                 "type": "string"
               },

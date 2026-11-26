@@ -793,7 +793,7 @@ export interface components {
       /** Browser Login */
       browser_login?: boolean | null
       /** Browser Method */
-      browser_method?: ("openrouter" | "chatgpt") | null
+      browser_method?: ("chatgpt" | "openrouter") | null
       /** Env */
       env?: string | null
       /**
@@ -950,7 +950,7 @@ export interface components {
     /** EffortRequest */
     EffortRequest: {
       /** Effort */
-      effort?: ("minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "off") | null
+      effort?: ("high" | "low" | "max" | "medium" | "minimal" | "off" | "xhigh") | null
     }
     /** EffortResponse */
     EffortResponse: {
@@ -1256,7 +1256,7 @@ export interface components {
        * Decision
        * @enum {string}
        */
-      decision: "once" | "session" | "always" | "deny"
+      decision: "always" | "deny" | "once" | "session"
       /** Reason */
       reason?: string | null
     }
@@ -1531,7 +1531,7 @@ export interface components {
        * Status
        * @enum {string}
        */
-      status: "ok" | "error" | "cancelled" | "skipped"
+      status: "cancelled" | "error" | "ok" | "skipped"
     }
     /** ToolOutputResponse */
     ToolOutputResponse: {
@@ -1571,7 +1571,7 @@ export interface components {
     /** UpdateSessionRequest */
     UpdateSessionRequest: {
       /** Effort */
-      effort?: ("minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "off") | null
+      effort?: ("high" | "low" | "max" | "medium" | "minimal" | "off" | "xhigh") | null
       /** Mode */
       mode?: ("build" | "plan") | null
       /** Model */

@@ -2217,12 +2217,30 @@ def update(
         console.print(f"siwah {status.current} is up to date (latest {status.latest}).")
 
 
+def _canonical_openapi(value: object) -> object:
+    """Sort enum values so generated contracts do not depend on the runtime."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                sorted(item)
+                if key == "enum"
+                and isinstance(item, list)
+                and all(isinstance(entry, str) for entry in item)
+                else _canonical_openapi(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_canonical_openapi(item) for item in value]
+    return value
+
+
 @app.command("openapi")
 def openapi() -> None:
     """Print the OpenAPI schema used to generate TypeScript types."""
     from ..server.app import create_app
 
-    schema = create_app(Config(), runtime=None).openapi()
+    schema = _canonical_openapi(create_app(Config(), runtime=None).openapi())
     typer.echo(json.dumps(schema, indent=2, sort_keys=True))
 
 

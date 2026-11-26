@@ -29,6 +29,11 @@ def test_version_and_openapi():
     schema = runner.invoke(app, ["openapi"])
     assert schema.exit_code == 0
     parsed = json.loads(schema.stdout)
+    enum = parsed["components"]["schemas"]["AuthProviderStatus"]["properties"]["browser_method"][
+        "anyOf"
+    ][0]["enum"]
+    assert enum == sorted(enum)
+    parsed = json.loads(schema.stdout)
     assert parsed["openapi"].startswith("3.")
     assert parsed["info"]["version"] == __version__
     assert "/v1/sessions" in parsed["paths"]
