@@ -709,3 +709,49 @@ test("a successful sign-in survives a provider catalog error", async () => {
   await expect(store.login("chatgpt", "secret")).resolves.toBeUndefined()
   expect(store.toasts().some((toast) => toast.text.includes("catalog unavailable"))).toBe(true)
 })
+
+test("opening a session restores tool activity and older replay cannot roll it back", async () => {
+  const child = { task_call_id: "delegate", session_id: "child", subagent: "explore" }
+  const job = { tool_call_id: "shell", id: "job", status: "running" }
+  const store = ready({
+    session: async () =>
+      session("a", {
+        last_event_seq: 3,
+        metadata: {
+          tool_activity: [
+            { seq: 8, type: "job.progress", data: { ...job, lines_read: 10 } },
+            { seq: 9, type: "subagent.end", data: { ...child, status: "completed" } },
+          ],
+        },
+      }),
+    messages: async () => ({
+      messages: [
+        {
+          id: "answer",
+          role: "assistant",
+          content: "",
+          created_at: "",
+          tool_calls: [
+            { id: "shell", name: "bash", arguments: {} },
+            { id: "delegate", name: "task", arguments: {} },
+          ],
+          tool_outputs: { shell: "started job", delegate: "done" },
+        },
+      ],
+    }),
+  })
+
+  await store.openSession("a")
+  const tools = () => store.messages()[0].toolCalls
+  expect(tools()[0].backgroundJob?.lines).toBe(10)
+  expect(tools()[1].children?.[0].status).toBe("completed")
+
+  event(store, 4, "job.started", { ...job, lines_read: 0 })
+  event(store, 5, "subagent.start", child)
+  expect(tools()[0].backgroundJob?.lines).toBe(10)
+  expect(tools()[1].children?.[0].status).toBe("completed")
+
+  event(store, 10, "job.completed", { ...job, status: "completed", returncode: 0, lines_read: 12 })
+  expect(tools()[0].backgroundJob?.status).toBe("completed")
+  expect(tools()[0].backgroundJob?.lines).toBe(12)
+})

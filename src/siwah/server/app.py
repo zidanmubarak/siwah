@@ -74,6 +74,9 @@ from .schema import (
     ForkSessionResponse,
     InitMemoryRequest,
     InitMemoryResponse,
+    LearningGraphResponse,
+    LearningLesson,
+    LearningSkill,
     McpServerStatus,
     McpStatusResponse,
     MemoryFileInfo,
@@ -90,6 +93,8 @@ from .schema import (
     PermissionModeResponse,
     PlanResponse,
     ProviderModels,
+    QuestionReply,
+    QuestionRequest,
     QueuedPromptResponse,
     QuickNoteRequest,
     QuickNoteResponse,
@@ -201,6 +206,12 @@ def create_app(
             data["last_event_seq"] = runtime.last_event_seq(session.id)
             if include_queue:
                 data["prompt_queue"] = runtime.queue_snapshot(session.id)
+                tool_activity = runtime.bus(session.id).tool_activity()
+                if tool_activity:
+                    data["metadata"] = {
+                        **(data.get("metadata") or {}),
+                        "tool_activity": tool_activity,
+                    }
             if running:
                 if runtime.is_waiting_permission(session.id):
                     data["metadata"] = {**(data.get("metadata") or {}), "waiting_permission": True}
@@ -238,6 +249,7 @@ def create_app(
                 features=[
                     "sessions",
                     "permissions",
+                    "interactive_questions",
                     "openapi",
                     "files",
                     "fork",
@@ -525,6 +537,25 @@ def create_app(
             user=file_info(snapshot.user),
             project=file_info(snapshot.project),
             quick=file_info(snapshot.quick),
+        )
+
+    @app.get(
+        "/v1/harness/learning",
+        response_model=LearningGraphResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def harness_learning(cwd: str | None = Query(default=None)) -> LearningGraphResponse:
+        daemon = require_runtime()
+        try:
+            graph = daemon.learning(cwd)
+        except ValueError as exc:
+            raise HTTPException(400, detail={"code": "cwd_not_found", "message": str(exc)}) from exc
+        return LearningGraphResponse(
+            skills=[LearningSkill(**item) for item in graph["skills"]],
+            lessons=[LearningLesson(**item) for item in graph["lessons"]],
+            evolution_tag=graph["evolution_tag"],
+            evolution_status=graph["evolution_status"],
         )
 
     @app.post(
@@ -941,6 +972,36 @@ def create_app(
         return PermissionDecisionResponse(
             request_id=request_id, decision=body.decision, accepted=True
         )
+
+    @app.get(
+        "/v1/sessions/{session_id}/question",
+        response_model=QuestionRequest | None,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def pending_question(session_id: str) -> QuestionRequest | None:
+        daemon = require_runtime()
+        if daemon.get_session(session_id) is None:
+            raise HTTPException(404, detail={"code": "session_not_found", "message": session_id})
+        return daemon.pending_question(session_id)
+
+    @app.post(
+        "/v1/sessions/{session_id}/questions/{request_id}",
+        response_model=OkResponse,
+        dependencies=[dependency],
+        tags=["siwah"],
+    )
+    async def reply_question(session_id: str, request_id: str, body: QuestionReply) -> OkResponse:
+        daemon = require_runtime()
+        try:
+            accepted = daemon.answer_question(session_id, request_id, body.answer)
+        except ValueError as exc:
+            raise HTTPException(
+                400, detail={"code": "invalid_answer", "message": str(exc)}
+            ) from exc
+        if not accepted:
+            raise HTTPException(404, detail={"code": "question_not_found", "message": request_id})
+        return OkResponse()
 
     @app.get(
         "/v1/sessions/{session_id}/checkpoints",

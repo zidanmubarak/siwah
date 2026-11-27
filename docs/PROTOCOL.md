@@ -1,6 +1,6 @@
 # Daemon protocol
 
-Status: **stable for siwah 1.0.5**. Protocol version: `0.1`.
+Status: **stable for siwah 1.1.0**. Protocol version: `0.1`.
 
 The protocol version is independent of the application version. Within protocol
 `0.1`, changes are additive: new optional fields and endpoints may appear, but
@@ -33,7 +33,7 @@ described here is an implementation detail.
 ```json
 {
   "name": "siwah",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "protocol": "0.1",
   "daemon_started_at": "2026-11-19T00:00:00Z",
   "default_effort": null,
@@ -77,6 +77,8 @@ supervisor and the request carries `X-Siwah-Challenge`, the response includes
 | `POST` | `/v1/sessions/{session_id}/fork` | Copy a session, optionally restore a checkpoint |
 | `POST` | `/v1/sessions/{session_id}/shell` | Direct shell command; `409` when approval is needed |
 | `POST` | `/v1/sessions/{session_id}/permissions/{request_id}` | Approve or deny a pending request |
+| `GET` | `/v1/sessions/{session_id}/question` | Read the pending question or null |
+| `POST` | `/v1/sessions/{session_id}/questions/{request_id}` | Answer or dismiss the pending question |
 | `GET` | `/v1/sessions/{session_id}/checkpoints` | List checkpoints |
 | `GET` | `/v1/sessions/{id}/changes` | List changes or load one patch with `file_path` |
 | `GET` | `/v1/sessions/{id}/timing` | Latest daemon task elapsed times in milliseconds |
@@ -91,6 +93,7 @@ supervisor and the request carries `X-Siwah-Challenge`, the response includes
 | `GET` | `/v1/harness/skills` | Skill names and descriptions |
 | `GET` | `/v1/harness/skills/{name}` | Full skill body |
 | `GET` | `/v1/harness/memory` | User, project, and quick memory |
+| `GET` | `/v1/harness/learning` | Skill usage, lessons, and evolution state |
 | `POST` | `/v1/harness/init` | Create project memory and an `AGENTS.md` scan |
 | `POST` | `/v1/harness/note` | Append a quick note |
 | `GET` | `/v1/permissions/mode` | Current daemon permission mode |
@@ -108,7 +111,7 @@ supervisor and the request carries `X-Siwah-Challenge`, the response includes
 | `GET` | `/v1/evolution` | Evolution timeline and status |
 | `POST` | `/v1/evolution/pause` | Pause or resume evolution |
 | `POST` | `/v1/evolution/rollback` | Roll back a tag or the previous harness revision |
-| `GET` | `/v1/update` | Check the upstream branch; `refresh=true` bypasses the cache |
+| `GET` | `/v1/update` | Check the latest release tag; `refresh=true` bypasses the cache |
 | `POST` | `/v1/update` | Fast-forward a source checkout and rebuild the TUI |
 
 Notes:
@@ -130,11 +133,12 @@ Notes:
 - `POST /v1/providers/defaults` appends missing built-in provider presets to the
   config without replacing existing provider tables, then reloads the registry.
   It is safe to call when providers already exist.
-- `/v1/update` reads the version from `pyproject.toml` on the checkout's upstream
-  branch and falls back to semver tags. It caches a successful check for six
-  hours. `POST` refuses a dirty checkout, performs `git merge --ff-only`,
-  rebuilds the TUI when Bun is available, and returns `restart_required`. It
-  never embeds a GitHub token and relies on the normal git credential helper.
+- `/v1/update` reads the highest release tag and falls back to the version in
+  `pyproject.toml` on the checkout's upstream branch only when no version tags
+  exist. It caches a successful check for one hour. `POST` refuses a dirty
+  checkout, performs `git merge --ff-only`, rebuilds the TUI when Bun is
+  available, and returns `restart_required`. It never embeds a GitHub token and
+  relies on the normal git credential helper.
 - `/v1/meta` includes `default_effort` from `[agent].effort`. Model summaries
   include `efforts`, the values advertised by the provider.
 
@@ -174,9 +178,16 @@ uses the sequence number. `seq` is monotonic per session.
 | `provider.retry` | `{provider, model, attempt, max_attempts, delay_s, code, message}` |
 | `tool.start` | `{tool_call_id, name, arguments_summary, started_at}` |
 | `tool.progress` | `{tool_call_id, chunk}` |
+| `subagent.start` | `{task_call_id, session_id, subagent, description}` |
+| `subagent.event` | `{task_call_id, session_id, subagent, event, data}` |
+| `subagent.end` | `{task_call_id, session_id, subagent, status, text?, allowance?, error?}` |
+| `job.started`, `job.progress`, `job.completed` | `{id, tool_call_id, command, status, returncode, started_at, lines_read}` |
 | `tool.end` | `{tool_call_id, status, exit_code?, duration_ms, output_summary, output_handle?}` |
 | `permission.request` | `{request_id, tool_call_id, kind, preview, patterns, choices}` |
 | `permission.resolved` | `{request_id, decision, reason?}` |
+| `question.request` | `{request_id, tool_call_id, header?, question, options, multiple, allow_custom}` |
+| `question.resolved` | `{request_id, reason}` with reason `answered`, `dismissed`, `cancelled`, or `timeout` |
+| `background.result` | `{kind, actor_id, status, title, tool_call_id?}` for a completed subagent or shell job |
 | `diff` | `{path, patch, view_hint}` |
 | `todo.update` | `{items: [{id, text, state}]}` |
 | `usage` | `{step_id, model, input, output, reasoning, cache_read, allowance, cost?, allowance_reported?, cost_reported?, billing_source}` |
@@ -194,6 +205,37 @@ idempotently) and out-of-order reconnects. The server does not emit a delta afte
 `message.end` for that message.
 
 ## 6. Permission flow
+
+The session detail response may include recent job and subagent progress in
+`metadata.tool_activity`. Each entry has `seq`, `type`, and a compact `data`
+payload for the tool card. This snapshot can restore progress even when the
+original events have left the SSE replay window. It lives in the daemon's
+memory and expires when the daemon restarts.
+
+### Background results
+
+`task` with `background=true` returns immediately with a child session ID.
+When that child or a background shell job finishes, the daemon appends a
+`system` message containing a delimited, untrusted JSON result and emits
+`background.result`. If the parent is idle, it starts a continuation run
+without adding a synthetic user message. If the parent is still running, the
+result is delivered after the current run and its queued prompts finish.
+
+### Agent questions
+
+An interactive `ask_user` call asks one or more questions in order. Each
+question has a short optional header, a question, and options with labels and
+optional descriptions. When `multiple` is true, the client joins the selected
+labels with newlines; a custom answer is one additional line. The client replies
+with `{"answer": "Option label or custom answer"}` or `{"dismissed": true}`.
+Replies are scoped to the originating session. Dismissal or timeout returns a
+tool error to the model. Cancelling the run cancels the question.
+
+On reconnect, the client can retrieve the current question from
+`GET /v1/sessions/{session_id}/question`. Use `request_id` to match replies and
+resolution events. The resolution event does not broadcast the answer text.
+
+### Tool permissions
 
 `permission.request` includes a human-readable preview and the available choices:
 

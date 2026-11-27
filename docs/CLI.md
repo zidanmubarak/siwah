@@ -41,6 +41,34 @@ Press Esc to cancel an active task and clear its queued prompts. This also
 works while an inline picker or tool permission prompt has focus. Your prompt
 draft stays in the editor.
 
+### Answer agent questions
+
+If you invite clarification and the task leaves a meaningful decision open,
+the agent can ask before making changes. It may ask several questions in order,
+or allow multiple selections when that fits the decision. Use the arrows and
+Enter to pick a suggested answer; for multi-select, Space toggles choices and
+Enter submits them. Tab opens the custom answer field when available. Esc
+dismisses the question, and Ctrl+C cancels the run. Siwah resumes the current
+task with your answer. Open a new session for the latest default prompt and
+guidance.
+
+### Learn from a session
+
+Use `/learn [focus]` when a task produced a reusable procedure or insight. Siwah
+checks existing skills, updates a matching one, or records one concise lesson
+with cue, evidence, and confidence. Lessons are private memory; skills belong to
+the editable harness. Do not use `/learn` for one-off task details or secrets.
+Use `/learned` to inspect the current skill/lesson graph and evolution state.
+
+### Follow background work
+
+Start one delegated subagent with `task` and `background=true`. The parent
+continues immediately, while the subagent shows its progress on the task card.
+When it finishes, Siwah adds a background notice and resumes the parent with
+the result. Background shell jobs show their status and output line count in
+the transcript and deliver the same kind of notice when they finish. Use the
+existing job tools to read the output or stop a background command.
+
 ### Find text in the current session
 
 Use `/find` to search the current transcript, or `/find <text>` to prefill
@@ -81,12 +109,13 @@ are enabled.
 | [`eval`](#eval) | Run an evaluation suite |
 | [`doctor`](#doctor) | Check local readiness |
 | [`clean`](#clean) | Remove stale local artifacts |
+| [`install-tui`](#install-tui) | Download the platform TUI binary |
 | [`update`](#update) | Check for or apply an update |
 | [`openapi`](#openapi) | Print the OpenAPI schema |
 | [`auth`](#auth) | Manage provider credentials |
 | [`models`](#models) | List and probe models |
-| [`skills`](#skills) | List and view harness skills |
-| [`memory`](#memory) | Inspect layered memory |
+| [`skills`](#skills) | List, view, and curate harness skills |
+| [`memory`](#memory) | Inspect memory, lessons, and the user profile |
 | [`mcp`](#mcp) | Manage MCP servers |
 | [`kernel`](#kernel) | Verify or regenerate the kernel manifest |
 
@@ -318,18 +347,40 @@ Remove stale local artifacts under `~/.siwah`.
 
 Run `siwah clean --sessions --dry-run` first.
 
+## `install-tui`
+
+```text
+siwah install-tui [--force] [--version X.Y.Z]
+```
+
+Download the matching compiled TUI binary from the GitHub release into
+`~/.siwah/bin/`. The SHA256 checksum from the release is verified before the
+binary is activated. The first interactive launch does this automatically when
+no binary is present; set `SIWAH_TUI_AUTO_DOWNLOAD=0` to disable that.
+
+## `skills curator`
+
+```text
+siwah skills curator [--dry-run] [--stale-after-days N] [--archive-after-days N]
+```
+
+Archive stale agent-created skills by inactivity. Archive is a state, not a
+delete; pinned skills are never touched. Usage metadata stays ignored in the
+harness repository.
+
 ## `update`
 
 ```text
 siwah update [OPTIONS]
 ```
 
-Check the upstream branch for a newer version, or apply it.
+Check the latest release tag for a newer version, or apply it. When no version
+tags exist, the upstream branch version is used as a fallback.
 
 | Option | Meaning |
 |---|---|
 | `--apply` | Fast-forward the editable checkout and rebuild the TUI. |
-| `--refresh` | Ignore the six-hour check cache. |
+| `--refresh` | Ignore the one-hour check cache. |
 | `--json` | Print JSON. |
 
 Applying requires a source checkout. A dirty checkout is refused. A wheel-only
@@ -388,19 +439,30 @@ siwah models privacy MODEL_REF --training false|true|unknown [--retention-days N
 ```text
 siwah skills list
 siwah skills view NAME
+siwah skills curator [--dry-run] [--stale-after-days N] [--archive-after-days N]
 ```
 
-`list` prints the name and description of global and project skills. `view`
-prints the full Markdown body.
+`list` prints the name, state, and description of global and project skills.
+`view` prints the full Markdown body. `curator` archives stale agent-created
+skills by inactivity; archive is a state, not a delete, and pinned skills are
+exempt. The daemon also runs the deterministic curator at most once per day
+after a session; set `SIWAH_CURATOR=0` to disable it.
 
 ## `memory`
 
 ```text
 siwah memory show [--cwd PATH]
+siwah memory lessons [--query TEXT] [--cwd PATH]
+siwah memory review [--dedupe] [--cwd PATH]
+siwah memory profile [--set key=value ...]
 ```
 
 Print user, project, and quick memory with their file paths. `--cwd` selects the
-workspace used to resolve project memory.
+workspace used to resolve project memory. `lessons` prints or searches the
+private experience store under `~/.siwah/memory/lessons.md` and the current
+project's `.siwah/lessons.md`. `review` reports exact duplicates and same-key
+conflicts; `--dedupe` removes exact duplicates only. `profile` shows or updates
+the local user model (language, stack, testing, preferences, risk tolerance).
 
 ## `mcp`
 

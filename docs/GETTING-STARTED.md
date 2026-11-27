@@ -75,22 +75,26 @@ siwah --version
 ```
 
 The wheel includes the CLI, daemon, and evaluation engine. It does not include
-the platform-specific TUI binary. Download the matching
-`siwah-tui-<platform>-<arch>` asset from the
-[latest release](https://github.com/zidanmubarak/siwah/releases) into
-`~/.siwah/bin/` (Windows: `siwah-tui.exe`), or set `SIWAH_TUI_BINARY` to its
-path. Without a binary, use `siwah run "..." --ui plain`.
+the platform-specific TUI binary. On the first interactive launch, `siwah`
+downloads the matching asset from the release and verifies its SHA256 checksum.
+Use `siwah install-tui` to fetch it explicitly, place it in `~/.siwah/bin/`
+(Windows: `siwah-tui.exe`), or set `SIWAH_TUI_BINARY` to its path. Without a
+binary, use `siwah run "..." --ui plain`.
 
 Update a PyPI install with `uv tool upgrade siwah` or `pip install -U siwah`.
 `/update` only applies to the editable source checkout from the bootstrap or
 manual checkout. Evaluation from a wheel needs `SIWAH_EVAL_DIR` pointing at a
 source checkout's `evals/` tree.
 
-### TestPyPI verification
+### Harness and private memory
 
-The 1.0.5 wheel is published to PyPI and also verified on TestPyPI. It is not
-the recommended install when you want `/update` to fast-forward a checkout. See
-[Releasing](RELEASING.md) for the verification steps.
+`~/.siwah/harness/` is the editable, git-versioned behavior layer: prompts,
+tool guidance, skills, subagents, commands, hooks, profiles, and config. Private
+user memory and learned lessons stay outside it under `~/.siwah/memory/`
+(`user.md`, `quick.md`, `lessons.md`); project memory stays in
+`<repo>/.siwah/project.md` and `<repo>/.siwah/lessons.md`. Harness rollback never
+touches private memory. Promote a mature lesson to a skill when it becomes a
+repeatable procedure.
 
 ## First run
 
@@ -252,8 +256,9 @@ demos.
 
 ## Update
 
-The TUI checks the upstream branch after startup and shows `↑ vX.Y.Z` when a
-newer version is available. To apply an update:
+The TUI checks the latest release tag after startup and shows `↑ vX.Y.Z` when a
+newer version is available. Unreleased branch commits do not trigger a notice.
+To apply an update:
 
 ```text
 /update

@@ -9,11 +9,118 @@ from httpx import ASGITransport
 
 from siwah.core.storage import Store
 from siwah.core.types import Message, StreamOutcome, Usage
+from siwah.harness.lessons import write_lesson
+from siwah.harness.skill_usage import record_event
+from siwah.harness.skills import create_skill
 from siwah.permissions.policy import PermissionRequest
 from siwah.sandbox import Sandbox, SandboxResult
 from siwah.server.app import create_app
+from siwah.server.events import EventBus
 
 from .test_server import make_runtime
+
+
+async def test_learning_endpoint_reports_skills_and_lessons(config, store, sample_repo):
+    runtime = await make_runtime(config, store, sample_repo)
+    create_skill("verify", "Verify a change.", "Run tests.")
+    record_event("verify", "create", created_by="agent")
+    write_lesson(
+        sample_repo,
+        target="project",
+        cue="Use the focused test",
+        lesson="Run the focused test before the full suite.",
+        evidence="pytest -q tests/test_math_utils.py",
+    )
+    app = create_app(config, runtime=runtime, token="test-token")
+    try:
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                f"/v1/harness/learning?cwd={sample_repo.as_posix()}",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["skills"][0]["name"] == "verify"
+        assert body["skills"][0]["state"] == "active"
+        assert body["lessons"][0]["cue"] == "Use the focused test"
+    finally:
+        await runtime.close()
+
+
+async def test_tool_activity_does_not_evict_running_work_first():
+    bus = EventBus("session", retention=10)
+    for index in range(128):
+        await bus.publish(
+            "job.completed",
+            {"tool_call_id": f"call-{index}", "id": f"job-{index}", "status": "completed"},
+        )
+    await bus.publish(
+        "job.started",
+        {"tool_call_id": "active", "id": "active-job", "status": "running"},
+    )
+    await bus.publish(
+        "job.completed",
+        {"tool_call_id": "late", "id": "late-job", "status": "completed"},
+    )
+    assert any(item["data"].get("id") == "active-job" for item in bus.tool_activity())
+
+
+async def test_session_tool_progress_recovers_after_event_replay_expires(
+    config, store, sample_repo
+):
+    runtime = await make_runtime(config, store, sample_repo)
+    session = runtime.create_session(cwd=str(sample_repo), model="mock/model-a")
+    bus = runtime.bus(session.id)
+    child = {"task_call_id": "task", "session_id": "child", "subagent": "explore"}
+    await bus.publish("subagent.start", {**child, "description": "internal task prompt"})
+    await bus.publish(
+        "subagent.event",
+        {**child, "event": "tool.start", "data": {"name": "read_file", "arguments": "raw"}},
+    )
+    await bus.publish(
+        "job.progress",
+        {
+            "tool_call_id": "shell",
+            "id": "job",
+            "status": "running",
+            "lines_read": 5,
+            "output": "raw",
+        },
+    )
+    for _ in range(config.server.event_retention):
+        await bus.publish("message.delta", {"text": "later"})
+    assert bus.replay_gap(1)
+
+    app = create_app(config, runtime=runtime, token="test-token")
+    try:
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                f"/v1/sessions/{session.id}", headers={"Authorization": "Bearer test-token"}
+            )
+        assert response.status_code == 200
+        assert response.json()["metadata"]["tool_activity"] == [
+            {
+                "seq": 2,
+                "type": "subagent.event",
+                "data": {**child, "event": "tool.start", "data": {"name": "read_file"}},
+            },
+            {
+                "seq": 3,
+                "type": "job.progress",
+                "data": {
+                    "tool_call_id": "shell",
+                    "id": "job",
+                    "status": "running",
+                    "lines_read": 5,
+                },
+            },
+        ]
+    finally:
+        await runtime.close()
 
 
 @pytest.mark.asyncio

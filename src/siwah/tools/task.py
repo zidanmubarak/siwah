@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from ..permissions.policy import PermissionRequest
-from .base import Tool, ToolContext, ToolResult, object_schema, string_property
+from .base import (
+    Tool,
+    ToolContext,
+    ToolResult,
+    boolean_property,
+    object_schema,
+    string_property,
+)
 
 
 class TaskTool(Tool):
@@ -15,7 +22,9 @@ class TaskTool(Tool):
         "review for read-only review, or general for implementation. Custom names "
         "are loaded from global and project .siwah/subagents; a file created in "
         "this run is usable immediately. Read-only tasks can be batched with "
-        "`tasks` and run in parallel. Subagents cannot launch further subagents."
+        "`tasks` and run in parallel. Set background=true for one task to return "
+        "immediately; its result is delivered as a background message. Subagents "
+        "cannot launch further subagents."
     )
     kind = "read"
     parameters = object_schema(
@@ -23,6 +32,9 @@ class TaskTool(Tool):
             "subagent_type": string_property("explore, review, general, or a custom name."),
             "prompt": string_property("Task instructions for the subagent."),
             "description": string_property("Short label shown in the UI."),
+            "background": boolean_property(
+                "Run one subagent in the background and deliver its result later.", False
+            ),
             "tasks": {
                 "type": "array",
                 "description": "Parallel read-only tasks; do not combine with prompt.",
@@ -43,8 +55,12 @@ class TaskTool(Tool):
         manager = context.subagent_manager
         if manager is None:
             return ToolResult.failure("Subagents are disabled for this session")
+        linkage = {"task_call_id": context.tool_call_id} if context.tool_call_id else {}
+        background = bool(arguments.get("background"))
         tasks = arguments.get("tasks")
         if tasks is not None:
+            if background:
+                return ToolResult.failure("background is only supported for a single task")
             if not isinstance(tasks, list) or not tasks:
                 return ToolResult.failure("tasks must be a non-empty array")
             if any(
@@ -71,7 +87,8 @@ class TaskTool(Tool):
                         )
                         for item in tasks
                         if isinstance(item, dict)
-                    ]
+                    ],
+                    **linkage,
                 )
             except (KeyError, ValueError) as exc:
                 return ToolResult.failure(f"Invalid task batch: {exc}")
@@ -114,7 +131,14 @@ class TaskTool(Tool):
             return ToolResult.failure(reason or "Task denied")
         try:
             options = {"_spec": spec} if spec is not None else {}
-            result = await manager.run(name, prompt, description=description, **options)
+            result = await manager.run(
+                name,
+                prompt,
+                description=description,
+                background=background,
+                **options,
+                **linkage,
+            )
         except ValueError as exc:
             return ToolResult.failure(str(exc))
         output = result.text
@@ -129,6 +153,7 @@ class TaskTool(Tool):
                 "session_id": result.session_id,
                 "allowance": result.usage.allowance if result.usage else 0.0,
                 "error": result.error,
+                "background": result.background,
                 # Conservative mutation signal, including partial/error runs.
                 # The parent owns verification and its rewind checkpoint.
                 "writable": not read_only,

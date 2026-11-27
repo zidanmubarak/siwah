@@ -79,6 +79,16 @@ export function MessageView(props: { message: UiMessage }) {
           Correction not applied · recover with /pending
         </text>
       </Show>
+      <Show when={message().role === "system"}>
+        <box border={["left"]} borderColor={theme.accentAlt} paddingX={2} flexDirection="column">
+          <text fg={theme.muted} attributes={TextAttributes.BOLD} wrapMode="none">
+            background result
+          </text>
+          <text fg={theme.muted} wrapMode="word">
+            {message().content}
+          </text>
+        </box>
+      </Show>
       <Show when={message().role === "user"}>
         <box
           flexDirection="row"

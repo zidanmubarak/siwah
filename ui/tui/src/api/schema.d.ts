@@ -242,6 +242,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  "/v1/harness/learning": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Harness Learning */
+    get: operations["harness_learning_v1_harness_learning_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   "/v1/harness/memory": {
     parameters: {
       query?: never
@@ -632,6 +649,40 @@ export interface paths {
     get: operations["plan_v1_sessions__session_id__plan_get"]
     put?: never
     post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/sessions/{session_id}/question": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Pending Question */
+    get: operations["pending_question_v1_sessions__session_id__question_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/v1/sessions/{session_id}/questions/{request_id}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Reply Question */
+    post: operations["reply_question_v1_sessions__session_id__questions__request_id__post"]
     delete?: never
     options?: never
     head?: never
@@ -1072,6 +1123,67 @@ export interface components {
       /** Path */
       path: string
     }
+    /** LearningGraphResponse */
+    LearningGraphResponse: {
+      /**
+       * Evolution Status
+       * @default idle
+       */
+      evolution_status: string
+      /** Evolution Tag */
+      evolution_tag?: string | null
+      /** Lessons */
+      lessons?: components["schemas"]["LearningLesson"][]
+      /** Skills */
+      skills?: components["schemas"]["LearningSkill"][]
+    }
+    /** LearningLesson */
+    LearningLesson: {
+      /**
+       * Confidence
+       * @default medium
+       */
+      confidence: string
+      /**
+       * Created
+       * @default
+       */
+      created: string
+      /** Cue */
+      cue: string
+      /** Lesson */
+      lesson: string
+      /**
+       * Source
+       * @default user
+       */
+      source: string
+    }
+    /** LearningSkill */
+    LearningSkill: {
+      /**
+       * Created By
+       * @default unknown
+       */
+      created_by: string
+      /**
+       * Description
+       * @default
+       */
+      description: string
+      /** Name */
+      name: string
+      /**
+       * State
+       * @default active
+       */
+      state: string
+      /**
+       * Use Count
+       * @default 0
+       */
+      use_count: number
+    }
     /** McpServerStatus */
     McpServerStatus: {
       /**
@@ -1312,6 +1424,54 @@ export interface components {
       models?: components["schemas"]["ModelSummary"][]
       /** Provider */
       provider: string
+    }
+    /** QuestionOption */
+    QuestionOption: {
+      /** Description */
+      description?: string | null
+      /** Label */
+      label: string
+    }
+    /** QuestionReply */
+    QuestionReply: {
+      /** Answer */
+      answer?: string | null
+      /**
+       * Dismissed
+       * @default false
+       */
+      dismissed: boolean
+    }
+    /** QuestionRequest */
+    QuestionRequest: {
+      /**
+       * Allow Custom
+       * @description Allow an answer other than a listed choice.
+       * @default true
+       */
+      allow_custom: boolean
+      /**
+       * Header
+       * @description Very short label for the question.
+       */
+      header?: string | null
+      /**
+       * Multiple
+       * @description Allow selecting multiple choices.
+       * @default false
+       */
+      multiple: boolean
+      /**
+       * Options
+       * @description Distinct choices, in display order.
+       */
+      options?: components["schemas"]["QuestionOption"][]
+      /** Question */
+      question: string
+      /** Request Id */
+      request_id: string
+      /** Tool Call Id */
+      tool_call_id?: string | null
     }
     /** QueuedPromptResponse */
     QueuedPromptResponse: {
@@ -2159,6 +2319,39 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["InitMemoryResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  harness_learning_v1_harness_learning_get: {
+    parameters: {
+      query?: {
+        cwd?: string | null
+      }
+      header?: {
+        Authorization?: string | null
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["LearningGraphResponse"]
         }
       }
       /** @description Validation Error */
@@ -3114,6 +3307,77 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["PlanResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  pending_question_v1_sessions__session_id__question_get: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        session_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["QuestionRequest"] | null
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  reply_question_v1_sessions__session_id__questions__request_id__post: {
+    parameters: {
+      query?: never
+      header?: {
+        Authorization?: string | null
+      }
+      path: {
+        session_id: string
+        request_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["QuestionReply"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["OkResponse"]
         }
       }
       /** @description Validation Error */

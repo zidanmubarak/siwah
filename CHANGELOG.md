@@ -3,6 +3,35 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [1.1.0] — 2026-11-27
+
+### Added
+
+- Answer agent questions in an inline panel with suggested choices or a custom response.
+- Follow subagent progress and background shell job status from the active session.
+- Run one subagent in the background and resume the parent with its result.
+- Deliver completed background jobs and subagents as resumable system notices.
+- Ask several questions in one call and select multiple options per question.
+- Download and verify the platform TUI binary on first launch from PyPI.
+- Inspect live context, allowance, tools, background work, and verification with `self_status`.
+- Record and search private experience lessons, and turn a session into a skill with `/learn`.
+- Track skill usage and archive stale agent-created skills with a scheduled curator.
+- Inspect the learned skill/lesson graph and evolution state with `/learned`.
+- Review duplicate or conflicting memory and maintain a durable local user profile.
+
+### Changed
+
+- Base update notices on the latest release tag instead of the public branch head.
+- Publish releases directly to PyPI; TestPyPI is no longer part of the release flow.
+
+### Fixed
+
+- Ask about unresolved requirements before editing when the user invites clarification.
+- Keep pending questions and answers consistent across abort and reconnect races.
+- Prevent a background job kill from masking a successful exit.
+- Preserve question drafts while permission prompts overlap.
+- Reject bidi and format controls in question text.
+
 ## [1.0.5] — 2026-11-26
 
 ### Added

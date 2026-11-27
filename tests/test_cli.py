@@ -110,6 +110,58 @@ def test_launch_uses_staged_binary_on_first_launch(tmp_path: Path, monkeypatch):
     assert result.value.exit_code == 0
 
 
+def test_launch_without_tui_or_bun_prints_bootstrap_hint(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path))
+    monkeypatch.delenv("SIWAH_TUI_BINARY", raising=False)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(sys, "stdout", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setenv("SIWAH_TUI_AUTO_DOWNLOAD", "0")
+    monkeypatch.setattr(cli_main, "_promote_tui_binary", lambda: None)
+    monkeypatch.setattr(cli_main, "_find_tui_binary", lambda: None)
+    monkeypatch.setattr(cli_main, "_find_bun", lambda: None)
+    monkeypatch.setattr(cli_main, "_repo_tui_dir", lambda: tmp_path / "missing")
+
+    with pytest.raises(Exit) as result:
+        cli_main.launch_tui()
+    assert result.value.exit_code == 1
+    assert "bootstrap.sh" in capsys.readouterr().err
+
+
+def test_launch_downloads_the_tui_when_none_is_available(tmp_path: Path, monkeypatch):
+    target = tmp_path / "bin" / "siwah-tui"
+    target.parent.mkdir()
+    target.write_bytes(b"tui")
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path))
+    monkeypatch.delenv("SIWAH_TUI_BINARY", raising=False)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(sys, "stdout", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(cli_main, "_promote_tui_binary", lambda: None)
+    monkeypatch.setattr(cli_main, "_find_tui_binary", lambda: None)
+    monkeypatch.setattr(cli_main, "_find_bun", lambda: None)
+    monkeypatch.setattr(cli_main, "_repo_tui_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr(cli_main, "ensure_tui_binary", lambda: target)
+    monkeypatch.setattr(cli_main, "_ensure_daemon", lambda: ("server", "token", None))
+    monkeypatch.setattr(cli_main.typer, "echo", lambda *_args, **_kwargs: None)
+
+    def run(command, **_kwargs):
+        assert command == [str(target)]
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", run)
+    with pytest.raises(Exit) as result:
+        cli_main.launch_tui()
+    assert result.value.exit_code == 0
+
+
+def test_install_tui_command_reports_the_target(tmp_path: Path, monkeypatch):
+    target = tmp_path / "home" / "bin" / "siwah-tui"
+    monkeypatch.setattr(cli_main, "ensure_tui_binary", lambda **_kwargs: target)
+    runner = CliRunner()
+    result = runner.invoke(app, ["install-tui"])
+    assert result.exit_code == 0
+    assert str(target) in result.stdout
+
+
 def test_doctor_with_empty_home_creates_default_catalog(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("SIWAH_CONFIG", raising=False)

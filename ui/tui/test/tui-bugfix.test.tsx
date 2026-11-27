@@ -332,3 +332,47 @@ test("the 60-column activity row keeps queue access visible during retry", async
     setup.renderer.destroy()
   }
 })
+
+test("delegated work and background jobs show live status on their own tool cards", async () => {
+  const store = readyStore()
+  store.messages([answer({ content: "" })])
+  const setup = await testRender(() => <App store={store} initialize={false} />, {
+    width: 100,
+    height: 30,
+  })
+  const push = (seq: number, type: string, data: Record<string, unknown>) =>
+    internal(store).handleEvent({ seq, type, data })
+  const explorer = { task_call_id: "delegate", session_id: "child-a", subagent: "explore" }
+  const reviewer = { task_call_id: "delegate", session_id: "child-b", subagent: "review" }
+  const job = { tool_call_id: "shell", id: "job_a" }
+
+  try {
+    push(1, "tool.start", { tool_call_id: "delegate", message_id: "answer", name: "task" })
+    push(2, "subagent.start", explorer)
+    push(3, "subagent.start", reviewer)
+    push(4, "subagent.event", { ...explorer, event: "tool.start", data: { name: "read_file" } })
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("explore · read_file")
+    expect(setup.captureCharFrame()).toContain("review · Starting")
+
+    push(5, "subagent.end", { ...explorer, status: "completed" })
+    push(6, "subagent.end", { ...reviewer, status: "cancelled" })
+    push(7, "tool.end", { tool_call_id: "delegate", status: "ok", output: "Child result" })
+    push(8, "tool.start", { tool_call_id: "shell", message_id: "answer", name: "bash" })
+    push(9, "job.started", { ...job, status: "running", lines_read: 0 })
+    push(10, "tool.end", { tool_call_id: "shell", status: "ok", output: "started job_a" })
+    push(11, "run.end", { reason: "completed" })
+    push(12, "job.progress", { ...job, status: "running", lines_read: 3 })
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("explore · Done")
+    expect(setup.captureCharFrame()).toContain("review · Cancelled")
+    expect(setup.captureCharFrame()).toContain("Background job running · 3 output lines")
+    expect(store.running()).toBe(false)
+
+    push(13, "job.completed", { ...job, status: "failed", lines_read: 4, returncode: 7 })
+    await setup.renderOnce()
+    expect(setup.captureCharFrame()).toContain("Background job failed · 4 output lines · exit 7")
+  } finally {
+    setup.renderer.destroy()
+  }
+})

@@ -9,7 +9,9 @@ from ..mcp.client import mcp_context
 from ..providers.profiles import profile_path
 from .bootstrap import ensure_harness
 from .defaults import DEFAULT_SYSTEM_PROMPT
+from .lessons import lessons_context
 from .memory import agents_context, memory_context
+from .profile import profile_context
 from .skills import skill_index_text
 
 MAX_TOOL_GUIDANCE = 8_000
@@ -112,6 +114,8 @@ def build_system_prompt(
             "workspace": str(workspace),
             "model": model_ref or "not configured",
             "memory": memory_context(workspace),
+            "profile": profile_context(),
+            "lessons": lessons_context(workspace),
             "skills": skill_index_text(workspace),
             "tool_guidance": tool_guidance_text(),
             "agents_md": agents_context(workspace),

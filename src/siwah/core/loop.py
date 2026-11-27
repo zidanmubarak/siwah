@@ -28,6 +28,7 @@ from ..core.context import (
     fallback_summary,
 )
 from ..core.prompt import system_prompt
+from ..core.questions import AskUser
 from ..core.storage import Session, Store, UsageTotals
 from ..core.subagents import SubagentManager
 from ..core.timing import timed
@@ -42,7 +43,7 @@ from ..core.types import (
 from ..core.verify import Verifier, VerifyReport
 from ..harness.memory import redact_secrets
 from ..hooks import HookManager
-from ..jobs import JobManager
+from ..jobs import Job, JobManager
 from ..mcp.client import McpManager
 from ..permissions.policy import (
     Approval,
@@ -56,10 +57,10 @@ from ..providers.registry import ProviderRegistry, RoleRouter
 from ..sandbox import Sandbox
 from ..tools.base import TodoItem, ToolContext, ToolRegistry, ToolResult
 from ..tools.fs import GlobTool, GrepTool, ReadFileTool
+from .background import BackgroundResult, BackgroundSink
 
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
 PermissionResolver = Callable[[PermissionRequest, str], Awaitable[Approval]]
-AskUser = Callable[[str], Awaitable[str]]
 SteeringInbox = Callable[[], list[tuple[str, str]]]
 
 _PARALLEL_READ_TOOLS = (ReadFileTool, GlobTool, GrepTool)
@@ -86,6 +87,10 @@ PLAN_TOOLS = {
     "symbols",
     "refs",
     "tool_output",
+    "self_status",
+    "lesson_search",
+    "memory_review",
+    "profile_read",
 }
 
 
@@ -296,8 +301,10 @@ class AgentLoop:
             },
         )
 
-    def _tool_specs(self, mode: str):
+    def _tool_specs(self, mode: str, ask_user: AskUser | None):
         specs = self.tools.specs()
+        if ask_user is None:
+            specs = [spec for spec in specs if spec.name != "ask_user"]
         if mode == "plan":
             return [spec for spec in specs if spec.name in PLAN_TOOLS]
         return specs
@@ -310,6 +317,8 @@ class AgentLoop:
         emit: EventSink,
         permission_resolver: PermissionResolver | None = None,
         ask_user: AskUser | None = None,
+        background_sink: BackgroundSink | None = None,
+        track_background: Callable[[asyncio.Task[Any]], None] | None = None,
         model_override: str | None = None,
         role: str = "main",
         max_steps: int | None = None,
@@ -319,6 +328,7 @@ class AgentLoop:
         max_allowance: float | None = None,
         take_steering: SteeringInbox | None = None,
         steering_waiting: Callable[[], bool] | None = None,
+        continuation: bool = False,
     ) -> RunResult:
         if max_allowance is not None and (not math.isfinite(max_allowance) or max_allowance < 0):
             raise ConfigError("max_allowance must be finite and non-negative")
@@ -371,11 +381,37 @@ class AgentLoop:
                 emit=emit,
                 permission_resolver=permission_resolver,
                 ask_user=ask_user,
+                background_sink=background_sink,
+                track_background=track_background,
             )
         job_manager = self._job_managers.get(session.id)
         if job_manager is None:
             job_manager = JobManager(self.config.jobs, cwd=workspace, emit=emit)
             self._job_managers[session.id] = job_manager
+
+        async def on_job_complete(job: Job) -> None:
+            if background_sink is None:
+                return
+            text = "".join(job.output)[-4_000:]
+            await background_sink(
+                BackgroundResult(
+                    kind="job",
+                    session_id=session.id,
+                    actor_id=job.id,
+                    title=job.command,
+                    status=job.status,
+                    text=text,
+                    error=(
+                        f"Command exited with status {job.returncode}"
+                        if job.status == "failed"
+                        else None
+                    ),
+                    tool_call_id=job.tool_call_id,
+                    returncode=job.returncode,
+                )
+            )
+
+        job_manager.on_complete = on_job_complete
         context.jobs = job_manager
         context.hooks = HookManager.load()
         context.mcp = self._mcp_manager
@@ -403,26 +439,27 @@ class AgentLoop:
         if restored_todos:
             await emit("todo.update", {"items": self._todos_payload(restored_todos)})
 
-        user_message_id = f"msg_{uuid.uuid4().hex}"
-        user_message = Message(role="user", content=prompt, attachments=attachments or [])
-        self.store.append_message(session.id, user_message, message_id=user_message_id)
-        self.store.append_trajectory(
-            session.id,
-            {
-                "type": "user",
-                "message_id": user_message_id,
-                "content": prompt,
-                "attachments": [item.mime for item in (attachments or [])],
-            },
-        )
-        await emit(
-            "message.start",
-            {"message_id": user_message_id, "role": "user"},
-        )
-        await emit(
-            "message.end",
-            {"message_id": user_message_id, "finish_reason": "user"},
-        )
+        if not continuation:
+            user_message_id = f"msg_{uuid.uuid4().hex}"
+            user_message = Message(role="user", content=prompt, attachments=attachments or [])
+            self.store.append_message(session.id, user_message, message_id=user_message_id)
+            self.store.append_trajectory(
+                session.id,
+                {
+                    "type": "user",
+                    "message_id": user_message_id,
+                    "content": prompt,
+                    "attachments": [item.mime for item in (attachments or [])],
+                },
+            )
+            await emit(
+                "message.start",
+                {"message_id": user_message_id, "role": "user"},
+            )
+            await emit(
+                "message.end",
+                {"message_id": user_message_id, "finish_reason": "user"},
+            )
 
         if checkpointer is not None:
             initial = await timed("checkpoint", asyncio.to_thread(checkpointer.initial))
@@ -470,7 +507,8 @@ class AgentLoop:
                 memory_cue = memory_cue or bool(_MEMORY_CUE.search(content))
                 await emit("steering.applied", {"message_id": message_id, "content": safe_content})
 
-        tools = self._tool_specs(session.mode)
+        tools = self._tool_specs(session.mode, ask_user)
+        context.tool_names = [spec.name for spec in tools]
         steps = 0
         final_text = ""
         limit = (
@@ -500,6 +538,7 @@ class AgentLoop:
         compactions = 0
         consecutive_provider_failures = 0
         escalated = False
+        context_notices: set[int] = set()
 
         try:
             while True:
@@ -590,6 +629,12 @@ class AgentLoop:
                     compacted=state.compacted,
                     override=model_override,
                 )
+                context.context_tokens = state.tokens
+                context.context_percent = state.percent
+                context.context_window = context_window
+                context.allowance = self.store.usage_totals(session.id).allowance
+                context.step = steps
+                self._append_context_notice(messages, state.percent, context_notices)
 
                 assistant_id = f"msg_{uuid.uuid4().hex}"
                 await emit(
@@ -1751,6 +1796,29 @@ class AgentLoop:
         metadata = dict(current.metadata) if current else {}
         metadata["todos"] = self._todos_payload(context.todos)
         self.store.update_session(session.id, metadata=metadata)
+
+    def _append_context_notice(
+        self, messages: list[Message], percent: float | None, seen: set[int]
+    ) -> None:
+        """Append one cache-safe runtime notice when context crosses a threshold."""
+
+        if percent is None:
+            return
+        for threshold in (70, 85):
+            if percent < threshold or threshold in seen:
+                continue
+            seen.add(threshold)
+            messages.append(
+                Message(
+                    role="system",
+                    content=(
+                        "[runtime notice] Estimated context use is "
+                        f"{percent:.0f}% of the model window. Prefer concise updates, avoid "
+                        "re-reading large files, and finish or compact soon. Use self_status "
+                        "if you need the current limits."
+                    ),
+                )
+            )
 
     def _completion_nudge(
         self,

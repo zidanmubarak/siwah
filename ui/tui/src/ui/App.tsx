@@ -3,7 +3,7 @@ import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Index, onCleanup, onMount, Show } from "solid-js"
 import { bindingMatches, filterCommands, filterFiles } from "../commands"
 import { loadTuiConfig } from "../config"
-import { initPrompt, reviewPrompt } from "../prompts"
+import { initPrompt, learnPrompt, reviewPrompt } from "../prompts"
 import type { PromptImage, TuiStore } from "../state"
 import type { Theme } from "../theme"
 import { copyText } from "../util"
@@ -24,6 +24,7 @@ import { MessageView } from "./MessageView"
 import { PermissionDialog } from "./PermissionDialog"
 import type { PromptHandle } from "./PromptBox"
 import { PromptBox } from "./PromptBox"
+import { QuestionPanel } from "./QuestionPanel"
 import { RunNotice } from "./RunNotice"
 import { StatusBar } from "./StatusBar"
 import { ToastStack } from "./ToastStack"
@@ -121,7 +122,7 @@ function Shell() {
   })
 
   createEffect(() => {
-    const modal = Boolean(store.permission() || store.dialog())
+    const modal = Boolean(store.permission() || store.question() || store.dialog())
     queueMicrotask(() => {
       if (!promptHandle) return
       if (modal) promptHandle.blur()
@@ -318,6 +319,9 @@ function Shell() {
       case "/skills":
         store.openDialog({ type: "skills" })
         return
+      case "/learned":
+        store.openDialog({ type: "learned" })
+        return
       case "/mcp":
         await store.reloadMcp()
         store.openDialog({ type: "mcp" })
@@ -405,6 +409,12 @@ function Shell() {
           display: target ? `Review changes: ${target}` : "Review uncommitted changes",
         })
       }
+      case "/learn": {
+        const target = raw.trim().slice(name.length).trim()
+        return store.sendPrompt(learnPrompt(target), {
+          display: target ? `Learn from this session: ${target}` : "Learn from this session",
+        })
+      }
       default:
         return store.runCustomCommand(name, raw.trim().slice(name.length).trim())
     }
@@ -416,6 +426,16 @@ function Shell() {
     // The modal is above the inline permission card. Never resolve a hidden
     // request from text intended for a dialog (for example an API key).
     if (store.dialog()) return
+    // The question owns ordinary keys. Its configured cancel binding dismisses
+    // the question; the configured exit binding still aborts the run.
+    if (store.question() && !store.permission()) {
+      if (bindingMatches(key, keybinds.cancel)) {
+        key.stopPropagation()
+        void store.answerQuestion(null)
+        return
+      }
+      if (!bindingMatches(key, keybinds.exit)) return
+    }
     if (store.running() && bindingMatches(key, keybinds.cancel)) {
       key.stopPropagation()
       if (hasTextSelection()) {
@@ -575,6 +595,7 @@ function Shell() {
     store.running() ||
     store.queuedPrompts().length > 0 ||
     Boolean(store.permission()) ||
+    Boolean(store.question()) ||
     (messages().length > 0 && awayFromLatest())
 
   return (
@@ -626,13 +647,16 @@ function Shell() {
         </Show>
       </box>
 
-      <InlineHost
-        selected={inlineSelected()}
-        bottom={footerHeight()}
-        onSelect={(item) => chooseInline(item.value)}
-      />
+      <Show when={!store.question()}>
+        <InlineHost
+          selected={inlineSelected()}
+          bottom={footerHeight()}
+          onSelect={(item) => chooseInline(item.value)}
+        />
+      </Show>
 
       <PermissionDialog cancelKey={keybinds.cancel} />
+      <QuestionPanel cancelKey={keybinds.cancel} />
       <box
         id="composer-dock"
         ref={(node) => {
@@ -687,6 +711,7 @@ function Shell() {
               away={messages().length > 0 && awayFromLatest()}
               jumpKey={keybinds.jumpLatest}
               cancelKey={keybinds.cancel}
+              exitKey={keybinds.exit}
               onJump={scrollToLatest}
             />
           </Show>

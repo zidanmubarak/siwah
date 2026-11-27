@@ -286,11 +286,8 @@ def _check_remote_only() -> UpdateStatus:
 
 
 def _remote_version(root: Path, remote: str, branch: str) -> tuple[str | None, str | None]:
-    show = _git(root, "show", f"{remote}/{branch}:pyproject.toml")
-    if show.returncode == 0:
-        version = version_from_pyproject(show.stdout)
-        if version is not None:
-            return version, "pyproject"
+    """Prefer release tags so ordinary branch commits never trigger an update notice."""
+
     tags = _git(root, "tag", "--list")
     candidates = [
         (key, tag.removeprefix("v"))
@@ -299,6 +296,11 @@ def _remote_version(root: Path, remote: str, branch: str) -> tuple[str | None, s
     ]
     if candidates:
         return max(candidates)[1], "tag"
+    show = _git(root, "show", f"{remote}/{branch}:pyproject.toml")
+    if show.returncode == 0:
+        version = version_from_pyproject(show.stdout)
+        if version is not None:
+            return version, "pyproject"
     return None, None
 
 

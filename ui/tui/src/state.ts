@@ -20,6 +20,7 @@ import {
   type ModelCatalog,
   type PermissionChoice,
   type PlanView,
+  type QuestionRequest,
   RuntimeMissingError,
   resolveRuntime,
   type Session,
@@ -42,6 +43,22 @@ import {
   savePromptHistory,
 } from "./util"
 
+export type ChildProgress = {
+  id: string
+  seq: number
+  name: string
+  status: "running" | "completed" | "error" | "cancelled"
+  activity: string
+}
+
+export type BackgroundJobProgress = {
+  id: string
+  seq: number
+  status: "running" | "completed" | "failed" | "killed"
+  lines: number
+  exitCode: number | null
+}
+
 export type ToolView = {
   id: string
   name: string
@@ -51,6 +68,8 @@ export type ToolView = {
   error: string | null
   durationMs: number | null
   edited?: boolean
+  children?: ChildProgress[]
+  backgroundJob?: BackgroundJobProgress
 }
 
 export type DiffBlock = {
@@ -62,7 +81,7 @@ export type PromptImage = MessageAttachment & { id: string; token?: string }
 
 export type UiMessage = {
   id: string
-  role: "user" | "assistant" | "tool"
+  role: "user" | "assistant" | "tool" | "system"
   content: string
   reasoning: string
   streaming: boolean
@@ -91,6 +110,11 @@ export type PermissionState = {
   shellCommand?: string
 }
 
+export type QuestionState = QuestionRequest & {
+  sessionId: string
+  options: NonNullable<QuestionRequest["options"]>
+}
+
 export type Effort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "off"
 
 export type DialogState =
@@ -116,6 +140,7 @@ export type DialogState =
   | { type: "changes"; scope: "turn" | "workspace"; checkpointId?: string }
   | { type: "skills" }
   | { type: "skill"; name: string }
+  | { type: "learned" }
   | { type: "memory" }
   | { type: "rewind"; checkpoint?: Checkpoint; steps?: number; label?: "undo" | "rewind" }
   | { type: "turns" }
@@ -235,6 +260,8 @@ export class TuiStore {
   })
   readonly todos = callableSignal<TodoItem[]>([])
   readonly permission = callableSignal<PermissionState | null>(null)
+  readonly question = callableSignal<QuestionState | null>(null)
+  readonly questionSubmitting = callableSignal(false)
   readonly dialog = callableSignal<DialogState>(null)
   readonly toasts = callableSignal<Toast[]>([])
   readonly runNotice = callableSignal<RunNotice | null>(null)
@@ -315,6 +342,7 @@ export class TuiStore {
   private readonly requestVersions = new Map<string, number>()
   private readonly seenEventIds = new Set<string>()
   private readonly decidingPermissions = new WeakSet<PermissionState>()
+  private questionRevision = 0
   private updateNotified = ""
   private streamBuffers = new Map<string, { content: string; reasoning: string }>()
   private streamTimer: ReturnType<typeof setTimeout> | null = null
@@ -452,6 +480,7 @@ export class TuiStore {
     this.running(false)
     this.setRunPhase(null)
     this.permission(null)
+    this.setQuestion(null)
     this.dialog(null)
     this.messages([])
     this.todos([])
@@ -1135,6 +1164,15 @@ export class TuiStore {
         if (label && Number.isFinite(since)) this.runPhase({ label, since })
       }
       this.messages(hydrateMessages(messageList.messages, active.status === "running"))
+      const toolActivity = active.metadata?.tool_activity
+      if (Array.isArray(toolActivity)) {
+        for (const item of toolActivity) {
+          const activity = record(item)
+          if (typeof activity.seq === "number") {
+            this.applyToolActivity(text(activity.type), record(activity.data), activity.seq)
+          }
+        }
+      }
       if (active.prompt_queue) {
         this.applyQueue(active.prompt_queue.event_seq, active.prompt_queue.items)
       }
@@ -1156,10 +1194,12 @@ export class TuiStore {
           .map((message) => message.content ?? ""),
       )
       this.lastSeq = options.after ?? session.last_event_seq ?? 0
+      const pendingQuestion =
+        active.status === "running" ? this.hydrateQuestion(sessionId) : Promise.resolve()
       this.startStream(session.id)
       void this.loadFiles()
       void this.reloadCommands()
-      await Promise.all([this.reloadCheckpoints(), this.loadPlan()])
+      await Promise.all([this.reloadCheckpoints(), this.loadPlan(), pendingQuestion])
     } catch (error) {
       if (epoch !== this.sessionEpoch) return
       this.sessionLoading = false
@@ -1402,6 +1442,7 @@ export class TuiStore {
       // say running after a restart or lost terminal event. Clear the stale UI.
       this.running(false)
       this.permission(null)
+      this.setQuestion(null)
       this.providerRetry(null)
       this.pendingRunError = null
       const active = this.session()
@@ -1415,6 +1456,60 @@ export class TuiStore {
       if (current()) this.notify(errorSuggestion(error), "error")
     } finally {
       this.abortingSessions.delete(session.id)
+    }
+  }
+
+  private setQuestion(question: QuestionState | null): void {
+    this.questionRevision += 1
+    if (this.question()?.request_id === question?.request_id) return
+    this.questionSubmitting(false)
+    this.question(question)
+  }
+
+  private async hydrateQuestion(sessionId: string): Promise<void> {
+    if (!this.api) return
+    const current = this.scope()
+    const revision = this.questionRevision
+    try {
+      const question = await this.api.pendingQuestion(sessionId)
+      if (current() && this.questionRevision === revision) {
+        this.setQuestion(
+          question ? { ...question, options: question.options ?? [], sessionId } : null,
+        )
+      }
+    } catch {
+      // An older daemon can reject this endpoint; its event stream remains usable.
+    }
+  }
+
+  async answerQuestion(answer: string | null): Promise<void> {
+    const question = this.question()
+    const session = this.session()
+    if (!question || !session || !this.api || this.questionSubmitting()) return
+    if (question.sessionId !== session.id) return
+    const value = answer?.trim() ?? null
+    const validChoice =
+      value !== null &&
+      value.length > 0 &&
+      (question.allow_custom ||
+        (question.multiple
+          ? value
+              .split("\n")
+              .every((line) => question.options.some((option) => option.label === line))
+          : question.options.some((option) => option.label === value)))
+    if (value !== null && !validChoice) return
+    const current = this.scope()
+    this.questionSubmitting(true)
+    try {
+      await this.api.answerQuestion(session.id, question.request_id, value)
+      if (current() && this.question() === question) this.setQuestion(null)
+    } catch (error) {
+      if (current() && this.question() === question) {
+        if (error instanceof ApiError && error.status === 404) this.setQuestion(null)
+        this.notify(errorSuggestion(error), "error")
+      }
+    } finally {
+      if (current() && this.question() === question) this.questionSubmitting(false)
     }
   }
 
@@ -1781,6 +1876,16 @@ export class TuiStore {
     }
   }
 
+  async learning() {
+    if (!this.api) return null
+    try {
+      return await this.api.learning(this.workspacePath())
+    } catch (error) {
+      this.notify(errorSuggestion(error), "error")
+      return null
+    }
+  }
+
   async initMemory(): Promise<void> {
     if (!this.api) {
       this.notify("Daemon unavailable", "error")
@@ -1922,6 +2027,27 @@ export class TuiStore {
       }
       case "message.start": {
         this.providerRetry(null)
+        if (text(data.role) === "system") {
+          const id = text(data.message_id)
+          if (id && !this.messages().some((message) => message.id === id)) {
+            this.messages((current) => [
+              ...current,
+              {
+                id,
+                role: "system",
+                content: text(data.content, "Background result"),
+                reasoning: "",
+                streaming: false,
+                createdAt: event.ts,
+                toolCalls: [],
+                diffs: [],
+                reasoningOpen: false,
+              },
+            ])
+            this.scrollTick((tick) => tick + 1)
+          }
+          break
+        }
         if (text(data.role) === "user") {
           const id = text(data.message_id)
           if (
@@ -2022,6 +2148,15 @@ export class TuiStore {
         }))
         break
       }
+      case "subagent.start":
+      case "subagent.event":
+      case "subagent.end":
+      case "job.started":
+      case "job.progress":
+      case "job.completed": {
+        this.applyToolActivity(event.type, data, event.seq)
+        break
+      }
       case "tool.progress": {
         this.updateTool(text(data.tool_call_id), (tool) => ({
           ...tool,
@@ -2109,6 +2244,53 @@ export class TuiStore {
         if (this.permission()?.requestId === text(data.request_id)) this.permission(null)
         break
       }
+      case "question.request": {
+        const sessionId = this.session()?.id
+        const requestId = text(data.request_id)
+        if (!sessionId || !requestId || typeof data.question !== "string") break
+        const options = Array.isArray(data.options)
+          ? data.options.flatMap((option: unknown) =>
+              option &&
+              typeof option === "object" &&
+              "label" in option &&
+              typeof option.label === "string"
+                ? [
+                    {
+                      label: option.label,
+                      description: "description" in option ? text(option.description) : undefined,
+                    },
+                  ]
+                : [],
+            )
+          : []
+        this.setQuestion({
+          sessionId,
+          request_id: requestId,
+          tool_call_id: text(data.tool_call_id) || undefined,
+          header: text(data.header) || undefined,
+          question: data.question,
+          options,
+          multiple: data.multiple === true,
+          allow_custom: data.allow_custom !== false,
+        })
+        break
+      }
+      case "question.resolved": {
+        // Invalidate any overlapping hydration even if the request was not replayed.
+        this.questionRevision += 1
+        if (this.question()?.request_id === text(data.request_id)) this.setQuestion(null)
+        break
+      }
+      case "background.result": {
+        const kind = text(data.kind) === "subagent" ? "Subagent" : "Background job"
+        const status = text(data.status, "finished")
+        const title = text(data.title)
+        this.notify(
+          `${kind} ${status}${title ? ` · ${title}` : ""}`,
+          status === "completed" ? "info" : "warning",
+        )
+        break
+      }
       case "provider.retry": {
         this.providerRetry({
           attempt: number(data.attempt, 1),
@@ -2134,6 +2316,7 @@ export class TuiStore {
         }
         if (state === "idle") {
           this.setRunPhase(null)
+          this.setQuestion(null)
           this.running(false)
           if (activeId) this.setSessionStatus(activeId, "idle")
         }
@@ -2146,6 +2329,7 @@ export class TuiStore {
         this.providerRetry(null)
         this.running(false)
         this.permission(null)
+        this.setQuestion(null)
         const activeId = this.session()?.id
         if (activeId) this.setSessionStatus(activeId, "idle")
         this.cancelRunningTools()
@@ -2173,6 +2357,7 @@ export class TuiStore {
         this.clearQueuedPrompts()
         this.running(false)
         this.permission(null)
+        this.setQuestion(null)
         const activeId = this.session()?.id
         if (activeId) this.setSessionStatus(activeId, "idle")
         this.cancelRunningTools()
@@ -2280,13 +2465,96 @@ export class TuiStore {
     })
   }
 
+  private applyToolActivity(type: string, data: Record<string, unknown>, seq: number): void {
+    if (type === "subagent.start" || type === "subagent.event" || type === "subagent.end") {
+      const taskId = text(data.task_call_id)
+      const childId = text(data.session_id)
+      if (!taskId || !childId) return
+      const nested = text(data.event)
+      const tool = record(data.data)
+      let activity: string
+      let status: ChildProgress["status"] = "running"
+      if (type === "subagent.start") {
+        activity = "Starting"
+      } else if (type === "subagent.end") {
+        status =
+          data.status === "cancelled"
+            ? "cancelled"
+            : data.status === "error" || data.error
+              ? "error"
+              : "completed"
+        activity = status === "completed" ? "Done" : status === "cancelled" ? "Cancelled" : "Failed"
+      } else if (nested === "tool.start") {
+        activity = text(tool.name, "Using tool")
+      } else if (nested === "message.start" && tool.role === "assistant") {
+        activity = "Working"
+      } else if (nested === "job.started") {
+        activity = "bash"
+      } else if (nested === "job.progress") {
+        activity = `bash · ${number(tool.lines_read)} lines`
+      } else if (nested === "job.completed") {
+        activity = `bash · ${text(tool.status, "done")}`
+      } else {
+        return
+      }
+      this.updateTool(taskId, (call) => {
+        const children = call.children ?? []
+        const current = children.find((child) => child.id === childId)
+        if (current && current.seq >= seq) return call
+        const next = { id: childId, seq, name: text(data.subagent, "Subagent"), status, activity }
+        return {
+          ...call,
+          children: current
+            ? children.map((child) => (child.id === childId ? next : child))
+            : [...children, next],
+        }
+      })
+    } else if (type === "job.started" || type === "job.progress" || type === "job.completed") {
+      const callId = text(data.tool_call_id)
+      const jobId = text(data.id)
+      if (!callId || !jobId) return
+      const status = data.status
+      if (
+        status !== "running" &&
+        status !== "completed" &&
+        status !== "failed" &&
+        status !== "killed"
+      )
+        return
+      this.updateTool(callId, (call) =>
+        call.backgroundJob && call.backgroundJob.seq >= seq
+          ? call
+          : {
+              ...call,
+              backgroundJob: {
+                id: jobId,
+                seq,
+                status,
+                lines: number(data.lines_read),
+                exitCode: typeof data.returncode === "number" ? data.returncode : null,
+              },
+            },
+      )
+    }
+  }
+
   private updateTool(id: string, update: (tool: ToolView) => ToolView): void {
-    this.messages((current) =>
-      current.map((message) => ({
-        ...message,
-        toolCalls: message.toolCalls.map((tool) => (tool.id === id ? update(tool) : tool)),
-      })),
-    )
+    this.messages((current) => {
+      const messageIndex = current.findIndex((message) =>
+        message.toolCalls.some((tool) => tool.id === id),
+      )
+      if (messageIndex < 0) return current
+      const message = current[messageIndex]
+      const toolIndex = message.toolCalls.findIndex((tool) => tool.id === id)
+      const tool = message.toolCalls[toolIndex]
+      const next = update(tool)
+      if (next === tool) return current
+      const toolCalls = message.toolCalls.slice()
+      toolCalls[toolIndex] = next
+      const messages = current.slice()
+      messages[messageIndex] = { ...message, toolCalls }
+      return messages
+    })
   }
 }
 
@@ -2298,6 +2566,20 @@ export function hydrateMessages(records: ChatMessage[], running = false): UiMess
     ? records.filter((record) => record.role === "assistant").at(-1)?.id
     : null
   for (const record of records) {
+    if (record.role === "system") {
+      messages.push({
+        id: record.id,
+        role: "system",
+        content: record.content ?? "",
+        reasoning: "",
+        streaming: false,
+        createdAt: record.created_at,
+        toolCalls: [],
+        diffs: [],
+        reasoningOpen: false,
+      })
+      continue
+    }
     if (record.role === "user") {
       messages.push({
         id: record.id,

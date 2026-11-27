@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import os
 import signal
+import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -15,8 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from .config import JobsConfig
+from .kernel.secrets import redact_secrets
 from .process import terminate_process_tree
 from .shell import shell_argv
+
+JobEmitter = Callable[[str, dict[str, Any]], Awaitable[None]]
+JobSink = Callable[["Job"], Awaitable[None]]
 
 
 @dataclass
@@ -28,6 +33,9 @@ class Job:
     status: str = "running"
     output: deque[str] = field(default_factory=deque)
     returncode: int | None = None
+    tool_call_id: str | None = None
+    lines_read: int = 0
+    kill_requested: bool = False
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -36,6 +44,8 @@ class Job:
             "status": self.status,
             "returncode": self.returncode,
             "started_at": self.started_at,
+            "tool_call_id": self.tool_call_id,
+            "lines_read": self.lines_read,
         }
 
 
@@ -45,17 +55,21 @@ class JobManager:
         config: JobsConfig,
         *,
         cwd: Path | str,
-        emit: Any = None,
+        emit: JobEmitter | None = None,
         environment: dict[str, str] | None = None,
+        on_complete: JobSink | None = None,
     ) -> None:
         self.config = config
         self.cwd = Path(cwd)
         self.emit = emit
         self.environment = environment
+        self.on_complete = on_complete
         self.jobs: dict[str, Job] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
 
-    async def start(self, command: str) -> Job:
+    async def start(
+        self, command: str, *, tool_call_id: str | None = None, emit: JobEmitter | None = None
+    ) -> Job:
         if (
             len([job for job in self.jobs.values() if job.status == "running"])
             >= self.config.max_jobs
@@ -75,40 +89,62 @@ class JobManager:
             command=command,
             process=process,
             started_at=datetime.now(UTC).isoformat(),
+            tool_call_id=tool_call_id,
             output=deque(maxlen=max(20, self.config.tail_lines)),
         )
         self.jobs[job.id] = job
-        task = asyncio.create_task(self._reader(job))
+        sink = emit or self.emit
+        task = asyncio.create_task(self._reader(job, sink))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return job
 
-    async def _reader(self, job: Job) -> None:
+    @staticmethod
+    async def _publish(sink: JobEmitter | None, event: str, job: Job) -> None:
+        if sink is not None:
+            with contextlib.suppress(Exception):
+                await sink(event, {**job.summary(), "command": redact_secrets(job.command)})
+
+    async def _reader(self, job: Job, sink: JobEmitter | None) -> None:
         assert job.process.stdout is not None
         stream = job.process.stdout
         buffer = b""
+        last_progress = 0.0
         try:
+            await self._publish(sink, "job.started", job)
             while True:
                 # read() has no line-length limit; readline() raises on a single
                 # line larger than 64 KiB and would leave the job "running".
                 chunk = await stream.read(65536)
                 if not chunk:
                     break
-                buffer += chunk
-                while b"\n" in buffer:
-                    line, buffer = buffer.split(b"\n", 1)
+                lines = (buffer + chunk).split(b"\n")
+                buffer = lines.pop()
+                for line in lines:
                     job.output.append(line.decode("utf-8", errors="replace") + "\n")
+                job.lines_read += len(lines)
+                if lines and time.monotonic() - last_progress >= 0.25:
+                    last_progress = time.monotonic()
+                    await self._publish(sink, "job.progress", job)
             if buffer:
                 job.output.append(buffer.decode("utf-8", errors="replace"))
+                job.lines_read += 1
             job.returncode = await job.process.wait()
             if job.status == "running":
-                job.status = "completed" if job.returncode == 0 else "failed"
+                job.status = (
+                    "completed"
+                    if job.returncode == 0
+                    else "killed"
+                    if job.kill_requested
+                    else "failed"
+                )
         finally:
             if job.status == "running":
                 job.status = "failed"
-            if self.emit is not None:
+            await self._publish(sink, "job.completed", job)
+            if self.on_complete is not None:
                 with contextlib.suppress(Exception):
-                    await self.emit("job.completed", job.summary())
+                    await self.on_complete(job)
 
     def list(self) -> list[Job]:
         return list(self.jobs.values())
@@ -126,10 +162,19 @@ class JobManager:
             raise KeyError(job_id)
         if job.status != "running":
             return False
-        await terminate_process_tree(job.process)
+        # The process may have exited successfully while its reader is still
+        # draining the final bytes. Do not turn that race into a false "killed".
+        if job.process.returncode == 0:
+            return False
+        job.kill_requested = True
+        try:
+            await terminate_process_tree(job.process)
+        except (OSError, asyncio.CancelledError):
+            job.kill_requested = False
+            raise
         job.returncode = job.process.returncode
-        job.status = "killed"
-        return True
+        job.status = "completed" if job.returncode == 0 else "killed"
+        return job.status == "killed"
 
     async def close(self) -> None:
         for job in list(self.jobs.values()):

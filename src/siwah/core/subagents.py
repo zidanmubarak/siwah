@@ -16,11 +16,13 @@ from ..permissions.policy import Approval, PermissionRequest
 from ..plugins import plugin_subagent_roots
 from ..providers.registry import RoleRouter
 from ..tools.base import Tool, ToolRegistry
+from .background import BackgroundResult, BackgroundSink
+from .questions import AskUser
 from .storage import Session, Store
 
 PermissionResolver = Callable[[PermissionRequest, str], Awaitable[Approval]]
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
-AskUser = Callable[[str], Awaitable[str]]
+BackgroundTracker = Callable[[asyncio.Task[Any]], None]
 
 READ_ONLY_TOOLS = {
     "read_file",
@@ -33,6 +35,10 @@ READ_ONLY_TOOLS = {
     "skill_view",
     "skill_list",
     "recall",
+    "lesson_search",
+    "memory_review",
+    "profile_read",
+    "self_status",
     "todo",
 }
 DEFAULT_GENERAL_TOOLS = {
@@ -47,6 +53,10 @@ DEFAULT_GENERAL_TOOLS = {
     "symbols",
     "refs",
     "tool_output",
+    "lesson_search",
+    "memory_review",
+    "profile_read",
+    "self_status",
 }
 
 
@@ -171,6 +181,7 @@ class SubagentResult:
     session_id: str
     usage: Any
     error: str | None = None
+    background: bool = False
 
 
 class SubagentManager:
@@ -186,6 +197,8 @@ class SubagentManager:
         permission_resolver: PermissionResolver | None = None,
         ask_user: AskUser | None = None,
         root: Path | str | None = None,
+        background_sink: BackgroundSink | None = None,
+        track_background: BackgroundTracker | None = None,
     ) -> None:
         self.config = config
         self.store = store
@@ -196,8 +209,16 @@ class SubagentManager:
         self.permission_resolver = permission_resolver
         self.ask_user = ask_user
         self.root = root
+        self.background_sink = background_sink
+        self.track_background = track_background
+        self._background_tasks: set[asyncio.Task[Any]] = set()
         self.specs: dict[str, SubagentSpec] = {}
         self.reload_specs()
+
+    def background_count(self) -> int:
+        """Number of detached child runs that have not finished yet."""
+
+        return sum(1 for task in self._background_tasks if not task.done())
 
     def reload_specs(self) -> None:
         """Reload global and project specs so a file created this run is usable."""
@@ -207,7 +228,9 @@ class SubagentManager:
         if project_root.is_dir():
             self.specs.update(load_subagents(project_root, include_defaults=False))
 
-    async def run_many(self, tasks: list[tuple[str, str, str]]) -> list[SubagentResult]:
+    async def run_many(
+        self, tasks: list[tuple[str, str, str]], *, task_call_id: str | None = None
+    ) -> list[SubagentResult]:
         self.reload_specs()
         specs = [self.specs.get(name) for name, _prompt, _description in tasks]
         missing = [
@@ -222,7 +245,9 @@ class SubagentManager:
         return list(
             await asyncio.gather(
                 *(
-                    self.run(name, prompt, description=description, _spec=spec)
+                    self.run(
+                        name, prompt, description=description, _spec=spec, task_call_id=task_call_id
+                    )
                     for (name, prompt, description), spec in zip(tasks, specs, strict=True)
                 )
             )
@@ -234,6 +259,8 @@ class SubagentManager:
         prompt: str,
         *,
         description: str = "",
+        task_call_id: str | None = None,
+        background: bool = False,
         _spec: SubagentSpec | None = None,
     ) -> SubagentResult:
         if _spec is None:
@@ -265,62 +292,128 @@ class SubagentManager:
                 "parent_session_id": self.parent_session.id,
                 "subagent": spec.name,
                 "depth": 1,
+                **({"parent_tool_call_id": task_call_id} if task_call_id else {}),
             },
         )
         body = spec.body or f"You are the {spec.name} subagent."
-        child_prompt = f"{body}\n\nTask:\n{prompt}"
+        parent_goal = ""
+        for message in reversed(self.store.get_messages(self.parent_session.id)):
+            if message.role == "user" and (message.content or "").strip():
+                parent_goal = (message.content or "").strip()[:1_200]
+                break
+        if not parent_goal:
+            parent_goal = self.parent_session.title or "No parent goal recorded."
+        child_prompt = (
+            f"{body}\n\n"
+            f"Parent session: {self.parent_session.title or 'untitled'}\n"
+            f"Workspace: {self.parent_session.cwd}\n"
+            f"Parent goal: {parent_goal}\n\n"
+            f"Task:\n{prompt}\n\n"
+            "Return a concise result with evidence and verification. Treat the parent goal "
+            "as context, not as permission to widen the task."
+        )
+
+        child_identity = {
+            "subagent": spec.name,
+            "session_id": child.id,
+            "task_call_id": task_call_id,
+        }
 
         async def child_emit(event: str, data: dict[str, Any]) -> None:
             if event in {"permission.request", "permission.resolved"}:
-                # The UI resolves permissions by request_id at the top level; a
-                # nested envelope would leave the future waiting forever.
+                # The UI resolves permissions by request ID on the parent stream.
                 payload = dict(data)
                 payload.setdefault("session_id", child.id)
                 payload["subagent"] = spec.name
+                if task_call_id:
+                    payload["task_call_id"] = task_call_id
                 await self.emit(event, payload)
                 return
             await self.emit(
                 "subagent.event",
-                {"subagent": spec.name, "session_id": child.id, "event": event, "data": data},
+                {**child_identity, "event": event, "data": data},
             )
 
         loop = AgentLoop(config=child_config, store=self.store, router=self.router, tools=tools)
-        await self.emit(
-            "subagent.start",
-            {"subagent": spec.name, "session_id": child.id, "description": description},
-        )
-        try:
-            result = await loop.run(
-                child,
-                child_prompt,
-                emit=child_emit,
-                permission_resolver=self.permission_resolver,
-                ask_user=self.ask_user,
-                model_override=model,
-                role=spec.role,
-                max_steps=self.config.subagents.max_steps,
-                max_allowance=self.config.subagents.max_allowance,
+
+        async def execute() -> SubagentResult:
+            try:
+                try:
+                    result = await loop.run(
+                        child,
+                        child_prompt,
+                        emit=child_emit,
+                        permission_resolver=self.permission_resolver,
+                        ask_user=self.ask_user,
+                        model_override=model,
+                        role=spec.role,
+                        max_steps=self.config.subagents.max_steps,
+                        max_allowance=self.config.subagents.max_allowance,
+                    )
+                finally:
+                    await loop.close_jobs()
+            except asyncio.CancelledError:
+                self.store.update_session(child.id, status="idle")
+                await self.emit("subagent.end", {**child_identity, "status": "cancelled"})
+                raise
+            except Exception as exc:
+                self.store.update_session(child.id, status="error")
+                await self.emit(
+                    "subagent.end", {**child_identity, "status": "error", "error": str(exc)}
+                )
+                final = SubagentResult(spec.name, "", child.id, None, str(exc))
+            else:
+                error = result.error
+                await self.emit(
+                    "subagent.end",
+                    {
+                        **child_identity,
+                        "text": result.text[:2_000],
+                        "allowance": result.usage.allowance,
+                        "status": "error" if error else "completed",
+                        "error": error,
+                    },
+                )
+                final = SubagentResult(spec.name, result.text, child.id, result.usage, error)
+            if background and self.background_sink is not None:
+                with contextlib.suppress(Exception):
+                    await self.background_sink(
+                        BackgroundResult(
+                            kind="subagent",
+                            session_id=self.parent_session.id,
+                            actor_id=child.id,
+                            title=description or spec.name,
+                            status="error" if final.error else "completed",
+                            text=final.text,
+                            error=final.error,
+                            tool_call_id=task_call_id,
+                        )
+                    )
+            return SubagentResult(
+                final.name,
+                final.text,
+                final.session_id,
+                final.usage,
+                final.error,
+                background=background,
             )
-        except Exception as exc:
-            await self.emit(
-                "subagent.end",
-                {"subagent": spec.name, "session_id": child.id, "error": str(exc)},
-            )
-            return SubagentResult(spec.name, "", child.id, None, str(exc))
-        finally:
-            await loop.close_jobs()
-        error = result.error
-        await self.emit(
-            "subagent.end",
-            {
-                "subagent": spec.name,
-                "session_id": child.id,
-                "text": result.text[:2_000],
-                "allowance": result.usage.allowance,
-                "error": error,
-            },
+
+        await self.emit("subagent.start", {**child_identity, "description": description})
+        if not background:
+            return await execute()
+
+        task = asyncio.create_task(execute())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        if self.track_background is not None:
+            self.track_background(task)
+        return SubagentResult(
+            spec.name,
+            f"Started {spec.name} in the background (session_id: {child.id}).",
+            child.id,
+            None,
+            background=True,
         )
-        return SubagentResult(spec.name, result.text, child.id, result.usage, error)
 
 
 __all__ = [

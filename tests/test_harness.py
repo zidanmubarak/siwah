@@ -380,13 +380,25 @@ def test_harness_upgrade_preserves_user_edits(tmp_path: Path):
     )
 
     path = tmp_path / "system.md"
-    path.write_text(LEGACY_SYSTEM_PROMPTS[0], encoding="utf-8")
-    _upgrade_default(path, DEFAULT_SYSTEM_PROMPT, LEGACY_SYSTEM_PROMPTS)
-    assert path.read_text(encoding="utf-8") == DEFAULT_SYSTEM_PROMPT
+    for prior_default in LEGACY_SYSTEM_PROMPTS:
+        path.write_text(prior_default, encoding="utf-8")
+        _upgrade_default(path, DEFAULT_SYSTEM_PROMPT, LEGACY_SYSTEM_PROMPTS)
+        assert path.read_text(encoding="utf-8") == DEFAULT_SYSTEM_PROMPT
 
     path.write_text("my own prompt\n", encoding="utf-8")
     _upgrade_default(path, DEFAULT_SYSTEM_PROMPT, LEGACY_SYSTEM_PROMPTS)
     assert path.read_text(encoding="utf-8") == "my own prompt\n"
+
+
+def test_default_prompt_teaches_clarification_before_edits(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    prompt = build_system_prompt(tmp_path)
+    assert "use ask_user before\n  making changes" in prompt
+    assert "dark-mode form" in prompt
+    assert "ask whether it is for login, registration, contact" in prompt
+    assert "answer arrives through the question panel" in prompt
+    assert "Set background=true only when you can" in prompt
+    assert "Omit background when you" in prompt
 
 
 async def test_recall_window_uses_project_and_compaction_boundary(tmp_path, monkeypatch):

@@ -19,6 +19,7 @@ from ..adapt.state import load_state
 from ..adapt.trigger import EvolutionTrigger
 from ..auth import AuthError, AuthStore
 from ..config import Config, ConfigError, update_agent_effort
+from ..core.background import BackgroundResult, render_background_result
 from ..core.checkpoints import CheckpointError, CheckpointManager
 from ..core.context import (
     compaction_prompt,
@@ -26,9 +27,11 @@ from ..core.context import (
     fallback_summary,
 )
 from ..core.loop import AgentLoop
+from ..core.questions import Question
 from ..core.storage import Session, Store
 from ..core.timing import RunTiming, active_timing
-from ..core.types import MessageAttachment, ModelInfo, Usage
+from ..core.types import Message, MessageAttachment, ModelInfo, Usage
+from ..harness.lessons import read_lessons
 from ..harness.memory import (
     init_agents_file,
     init_project_memory,
@@ -36,6 +39,7 @@ from ..harness.memory import (
     read_memory,
     redact_secrets,
 )
+from ..harness.skill_usage import load_usage
 from ..harness.skills import list_skills, read_skill
 from ..permissions.policy import Approval, PermissionPolicy, PermissionRequest
 from ..providers.base import ProviderError
@@ -44,13 +48,16 @@ from ..providers.openrouter_auth import supports_browser_login
 from ..providers.profiles import load_profile
 from ..providers.registry import ProviderRegistry, RoleRouter
 from ..sandbox import Sandbox
-from ..tools.base import ToolContext, ToolRegistry
+from ..tools.base import EventEmitter, ToolContext, ToolRegistry
 from ..tools.runtime import BashTool, default_tools
 from .events import EventBus
+from .schema import QuestionRequest
 
 PERMISSION_TIMEOUT_S = 300.0
+QUESTION_TIMEOUT_S = 300.0
 MAX_QUEUED_PROMPTS = 16
 QUEUE_RETRY_DELAY_S = 0.5
+BACKGROUND_RETRY_DELAY_S = 0.5
 
 
 @dataclass(frozen=True)
@@ -117,6 +124,11 @@ class DaemonRuntime:
         self._active_run_ids: dict[str, str] = {}
         self._waiters: dict[str, asyncio.Future[Approval]] = {}
         self._waiter_sessions: dict[str, str] = {}
+        self._questions: dict[str, tuple[QuestionRequest, asyncio.Future[str | None]]] = {}
+        self._aborting: set[str] = set()
+        self._background_pending: set[str] = set()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._background_retries: dict[str, asyncio.TimerHandle] = {}
         self._watermarks: dict[str, int] = {}
         self._operation_lock = threading.RLock()
         self._workspace_operations: set[Path] = set()
@@ -245,6 +257,7 @@ class DaemonRuntime:
                 self._clear_queue_block(session_id)
                 self._drain_queue(session_id)
         await self.publish_queue(session_id)
+        self._maybe_start_background(session_id)
         return item
 
     def active_run_id(self, session_id: str) -> str | None:
@@ -274,6 +287,7 @@ class DaemonRuntime:
         attachments: list[MessageAttachment] | None = None,
         *,
         queued_prompt_id: str | None = None,
+        continuation: bool = False,
     ) -> tuple[str, int]:
         if not session.cwd:
             raise ValueError("Session has no workspace")
@@ -286,6 +300,7 @@ class DaemonRuntime:
                 self.store.update_session(session.id, title=title)
         run_id = f"run_{uuid.uuid4().hex}"
         self._active_run_ids[session.id] = run_id
+        self._aborting.discard(session.id)
         self._steering[run_id] = {}
         bus = self.bus(session.id)
         ended = False
@@ -319,7 +334,14 @@ class DaemonRuntime:
             try:
                 if queued_prompt_id:
                     await self.publish_queue(session.id)
-                await self._run(session, content, attachments or [], emit, run_id)
+                await self._run(
+                    session,
+                    content,
+                    attachments or [],
+                    emit,
+                    run_id,
+                    continuation=continuation,
+                )
             except asyncio.CancelledError:
                 if not ended:
                     self.store.update_session(session.id, status="idle")
@@ -336,10 +358,16 @@ class DaemonRuntime:
             if self._tasks.get(session_id) is task:
                 self._tasks.pop(session_id, None)
                 self._active_run_ids.pop(session_id, None)
+            self._aborting.discard(session_id)
             remaining = self._save_unapplied(session_id, run_id)
         if remaining:
             asyncio.create_task(self._publish_unapplied(session_id, run_id, remaining))
         self._drain_queue(session_id)
+        self._maybe_start_background(session_id)
+        with contextlib.suppress(Exception):
+            from ..harness.skill_usage import maybe_curate
+
+            maybe_curate()
 
     def _save_unapplied(self, session_id: str, run_id: str) -> dict[str, str]:
         with self._operation_lock:
@@ -400,6 +428,93 @@ class DaemonRuntime:
         if retry is not None:
             retry.cancel()
 
+    # ------------------------------------------------------------------
+    # Background results
+    # ------------------------------------------------------------------
+    def _track_background_task(self, task: asyncio.Task[Any]) -> None:
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _deliver_background_result(self, result: BackgroundResult) -> None:
+        if self._closing:
+            return
+        session = self.store.get_session(result.session_id)
+        if session is None:
+            return
+        text = redact_secrets(render_background_result(result))
+        message_id = f"msg_{uuid.uuid4().hex}"
+        self.store.append_message(
+            session.id,
+            Message(role="system", content=text),
+            message_id=message_id,
+        )
+        self.store.append_trajectory(
+            session.id,
+            {
+                "type": "background",
+                "message_id": message_id,
+                "kind": result.kind,
+                "actor_id": result.actor_id,
+                "status": result.status,
+            },
+        )
+        bus = self.bus(session.id)
+        event = {
+            "message_id": message_id,
+            "role": "system",
+            "content": text,
+            "kind": result.kind,
+            "actor_id": result.actor_id,
+            "status": result.status,
+            "title": redact_secrets(result.title),
+        }
+        await bus.publish("message.start", event)
+        await bus.publish("message.end", {"message_id": message_id, "finish_reason": "background"})
+        await bus.publish(
+            "background.result",
+            {
+                "kind": result.kind,
+                "actor_id": result.actor_id,
+                "status": result.status,
+                "title": redact_secrets(result.title),
+                "tool_call_id": result.tool_call_id,
+            },
+        )
+        self._background_pending.add(session.id)
+        self._maybe_start_background(session.id)
+
+    def _maybe_start_background(self, session_id: str) -> None:
+        if self._closing or session_id not in self._background_pending:
+            return
+        with self._operation_lock:
+            if self._closing or session_id not in self._background_pending:
+                return
+            if self.is_running(session_id) or self._queues.get(session_id):
+                return
+            session = self.store.get_session(session_id)
+            if session is None or not session.cwd:
+                self._background_pending.discard(session_id)
+                return
+            try:
+                self._start_run(session, "", continuation=True)
+            except (SessionBusy, RuntimeError_):
+                self._schedule_background_retry(session_id)
+            except Exception:
+                self._background_pending.discard(session_id)
+            else:
+                self._background_pending.discard(session_id)
+
+    def _schedule_background_retry(self, session_id: str) -> None:
+        if session_id in self._background_retries:
+            return
+        self._background_retries[session_id] = asyncio.get_running_loop().call_later(
+            BACKGROUND_RETRY_DELAY_S, self._retry_background, session_id
+        )
+
+    def _retry_background(self, session_id: str) -> None:
+        self._background_retries.pop(session_id, None)
+        self._maybe_start_background(session_id)
+
     @contextlib.contextmanager
     def _exclusive_operation(self, session_id: str):
         """Reserve an idle workspace across awaits and worker-thread operations."""
@@ -433,6 +548,8 @@ class DaemonRuntime:
         attachments: list[MessageAttachment],
         emit,
         run_id: str,
+        *,
+        continuation: bool = False,
     ) -> None:
         cancelled = False
         timing = RunTiming()
@@ -470,6 +587,12 @@ class DaemonRuntime:
         async def resolve_permission(request: PermissionRequest, request_id: str) -> Approval:
             return await self._resolve_permission(request, request_id, session_id=session.id)
 
+        question_lock = asyncio.Lock()
+
+        async def ask_user(question: Question, tool_call_id: str | None) -> str | None:
+            async with question_lock:
+                return await self._ask_question(session.id, question, tool_call_id, emit)
+
         def take_steering() -> list[tuple[str, str]]:
             with self._operation_lock:
                 inbox = self._steering.get(run_id)
@@ -490,11 +613,15 @@ class DaemonRuntime:
                 content,
                 emit=observed_emit,
                 permission_resolver=resolve_permission,
+                ask_user=ask_user,
                 model_override=session.model,
                 extend_budget=True,
                 attachments=attachments,
                 take_steering=take_steering,
                 steering_waiting=steering_waiting,
+                background_sink=self._deliver_background_result,
+                track_background=self._track_background_task,
+                continuation=continuation,
             )
         except asyncio.CancelledError:
             cancelled = True
@@ -539,6 +666,8 @@ class DaemonRuntime:
             task = self._tasks.get(session_id)
             active = task is not None and not task.done()
             if task is not None and active:
+                self._aborting.add(session_id)
+
                 # Give a just-created task its first tick so its cancellation
                 # handler can publish the terminal event.
                 def request_cancel() -> None:
@@ -546,8 +675,11 @@ class DaemonRuntime:
                         task.cancel()
 
                 asyncio.get_running_loop().call_soon(request_cancel)
+            else:
+                self._aborting.discard(session_id)
         if cleared:
             await self.publish_queue(session_id)
+            self._maybe_start_background(session_id)
         return active
 
     # ------------------------------------------------------------------
@@ -584,6 +716,51 @@ class DaemonRuntime:
         if decision not in {"once", "session", "always", "deny"}:
             return False
         future.set_result(Approval(decision=decision, reason=reason))  # type: ignore[arg-type]
+        return True
+
+    async def _ask_question(
+        self,
+        session_id: str,
+        question: Question,
+        tool_call_id: str | None,
+        emit: EventEmitter,
+    ) -> str | None:
+        request = QuestionRequest(
+            request_id=f"qst_{uuid.uuid4().hex}",
+            tool_call_id=tool_call_id,
+            **question.model_dump(),
+        )
+        future: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+        entry = (request, future)
+        self._questions[session_id] = entry
+        reason = "cancelled"
+        try:
+            await emit("question.request", request.model_dump(mode="json"))
+            answer = await asyncio.wait_for(future, timeout=QUESTION_TIMEOUT_S)
+            reason = "answered" if answer is not None else "dismissed"
+            return answer
+        except TimeoutError:
+            reason = "timeout"
+            return None
+        finally:
+            if self._questions.get(session_id) is entry:
+                self._questions.pop(session_id, None)
+            await emit("question.resolved", {"request_id": request.request_id, "reason": reason})
+
+    def pending_question(self, session_id: str) -> QuestionRequest | None:
+        pending = self._questions.get(session_id)
+        return pending[0] if pending and not pending[1].done() else None
+
+    def answer_question(self, session_id: str, request_id: str, answer: str | None) -> bool:
+        if session_id in self._aborting:
+            return False
+        pending = self._questions.get(session_id)
+        if pending is None:
+            return False
+        request, future = pending
+        if request.request_id != request_id or future.done():
+            return False
+        future.set_result(request.validate_answer(answer) if answer is not None else None)
         return True
 
     # ------------------------------------------------------------------
@@ -1117,6 +1294,37 @@ class DaemonRuntime:
             raise ValueError(f"Workspace does not exist: {workspace}")
         return read_memory(workspace)
 
+    def learning(self, cwd: str | None = None) -> dict[str, Any]:
+        workspace = Path(cwd or Path.cwd()).expanduser().resolve()
+        if not workspace.is_dir():
+            raise ValueError(f"Workspace does not exist: {workspace}")
+        usage = load_usage()
+        state = load_state()
+        return {
+            "skills": [
+                {
+                    "name": skill.name,
+                    "description": skill.description,
+                    "state": str(usage.get(skill.name, {}).get("state") or "active"),
+                    "use_count": int(usage.get(skill.name, {}).get("use_count", 0)),
+                    "created_by": str(usage.get(skill.name, {}).get("created_by") or "unknown"),
+                }
+                for skill in list_skills(workspace, include_archived=True)
+            ],
+            "lessons": [
+                {
+                    "cue": lesson.cue,
+                    "lesson": lesson.lesson,
+                    "confidence": lesson.confidence,
+                    "source": lesson.source,
+                    "created": lesson.created,
+                }
+                for lesson in read_lessons(workspace)
+            ],
+            "evolution_tag": state.tag,
+            "evolution_status": state.status,
+        }
+
     def init_memory(self, cwd: str) -> Any:
         workspace = Path(cwd).expanduser().resolve()
         if not workspace.is_dir():
@@ -1233,10 +1441,14 @@ class DaemonRuntime:
     async def close(self) -> None:
         with self._operation_lock:
             self._closing = True
-            tasks = list(self._tasks.values())
+            tasks = [*self._tasks.values(), *self._background_tasks]
             for retry in self._queue_retries.values():
                 retry.cancel()
             self._queue_retries.clear()
+            for retry in self._background_retries.values():
+                retry.cancel()
+            self._background_retries.clear()
+            self._background_pending.clear()
         for task in tasks:
             task.cancel()
         for task in tasks:

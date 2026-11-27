@@ -8,6 +8,7 @@ import sys
 import threading
 from typing import Any
 
+from ..core.questions import Question
 from ..permissions.policy import Approval, PermissionRequest
 
 
@@ -81,11 +82,52 @@ class PlainRenderer:
         decision = mapping.get(answer, "deny")
         return Approval(decision=decision)  # type: ignore[arg-type]
 
-    async def ask_user(self, question: str) -> str:
+    async def ask_user(
+        self, question: Question | str, _tool_call_id: str | None = None
+    ) -> str | None:
+        if isinstance(question, Question):
+            return await self._ask_question(question)
         try:
             return await _read_input(f"{question}\n> ")
         except EOFError:
             return ""
+
+    async def _ask_question(self, question: Question) -> str | None:
+        self._newline()
+        if question.header:
+            self._write(f"[{question.header}]\n")
+        self._write(f"{question.question}\n")
+        choices = {str(index): option.label for index, option in enumerate(question.options, 1)}
+        for index, option in enumerate(question.options, 1):
+            suffix = f" — {option.description}" if option.description else ""
+            self._write(f"  {index}. {option.label}{suffix}\n")
+        if question.multiple:
+            hint = "Choose numbers or labels separated by commas"
+        elif question.options and question.allow_custom:
+            hint = "Choose a number or type an answer"
+        elif question.options:
+            hint = "Choose a number"
+        else:
+            hint = "Type an answer"
+        while True:
+            try:
+                text = (await _read_input(f"{hint} (Enter to dismiss): ")).strip()
+            except EOFError:
+                return None
+            if not text:
+                return None
+            try:
+                if question.multiple:
+                    parts = [part.strip() for part in text.split(",") if part.strip()]
+                    words = text.split()
+                    if len(parts) == 1 and len(words) > 1 and all(word.isdigit() for word in words):
+                        parts = words
+                    value = "\n".join(choices.get(part, part) for part in parts)
+                else:
+                    value = choices.get(text, text)
+                return question.validate_answer(value)
+            except ValueError as exc:
+                self._write(f"{exc}\n")
 
     def _write(self, value: str, *, stream=None) -> None:
         target = stream or sys.stdout

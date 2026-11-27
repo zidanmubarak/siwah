@@ -94,6 +94,31 @@ Return findings first, ordered by severity. Include file and line references
 when possible. Then list verification you ran and any remaining gaps. If there
 are no findings, say that directly.`
 
+const LEARN_TEMPLATE = `Review the work in this session and turn it into durable learning.
+
+Focus or constraints: {{ARGUMENTS}}
+
+## Decide the artifact
+
+1. If the session produced a repeatable procedure, create or update one skill
+   under the harness with \`skill_manage\`. Check existing skills first and
+   extend a matching skill instead of creating a near-duplicate.
+2. If it produced a durable but non-procedural insight, record one concise
+   lesson with \`lesson_write\`: cue, rule, evidence, confidence, and target
+   (project for this repository, user for cross-project preferences).
+3. If neither applies, say so and do not create filler.
+
+## Quality rules
+
+- Use only evidence present in the session; never invent commands or results.
+- Remove secrets, credentials, personal data, and one-off task details.
+- Keep a skill description short and make its trigger explicit.
+- Prefer a script or reference file when the skill would otherwise contain a
+  large body of code or documentation.
+- Do not weaken permissions, verifier checks, or protected paths.
+
+Finish by naming the skill or lesson created and why it is reusable.`
+
 function fill(template: string, path: string, argumentsText: string): string {
   return template.split("{{PATH}}").join(path).split("{{ARGUMENTS}}").join(argumentsText.trim())
 }
@@ -104,4 +129,8 @@ export function initPrompt(path: string, argumentsText = ""): string {
 
 export function reviewPrompt(path: string, argumentsText = ""): string {
   return fill(REVIEW_TEMPLATE, path, argumentsText)
+}
+
+export function learnPrompt(argumentsText = ""): string {
+  return LEARN_TEMPLATE.split("{{ARGUMENTS}}").join(argumentsText.trim())
 }

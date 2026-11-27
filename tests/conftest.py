@@ -105,6 +105,7 @@ def tool_call(name: str, arguments: dict[str, Any], call_id: str = "call_1"):
 @pytest.fixture(autouse=True)
 def _disable_auto_evolution(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("SIWAH_EVOLVE_AUTO", "0")
+    monkeypatch.setenv("SIWAH_CURATOR", "0")
 
 
 @pytest.fixture

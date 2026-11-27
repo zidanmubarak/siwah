@@ -387,6 +387,8 @@ export function DialogHost(
         return <ConnectDialog onClose={close} />
       case "skills":
         return <SkillsDialog onClose={close} />
+      case "learned":
+        return <LearnedDialog onClose={close} />
       case "mcp":
         return <McpDialog onClose={close} />
       case "skill":
@@ -1561,6 +1563,59 @@ function SkillsDialog(props: { onClose: () => void }) {
         />
       </Show>
     </Show>
+  )
+}
+
+function LearnedDialog(props: { onClose: () => void }) {
+  const store = useStore()
+  const theme = useTheme()
+  const [graph] = createResource(() => store.learning())
+  useKeyboard((key) => {
+    if (key.name === "escape") {
+      key.stopPropagation()
+      props.onClose()
+    }
+  })
+  return (
+    <Modal title="learned" width={88} height={28}>
+      <box flexDirection="column" flexGrow={1} gap={1}>
+        <Show when={graph()} fallback={<text fg={theme.dim}>Loading learning state…</text>}>
+          {(value) => (
+            <>
+              <Notice>
+                <text fg={theme.accent}>
+                  {`${value().skills?.length ?? 0} skills · ${value().lessons?.length ?? 0} lessons · ${value().evolution_tag ?? "evo-0"} · ${value().evolution_status ?? "idle"}`}
+                </text>
+              </Notice>
+              <SectionLabel>skills</SectionLabel>
+              <For
+                each={(value().skills ?? []).slice(0, 10)}
+                fallback={<text fg={theme.dim}>No skills yet.</text>}
+              >
+                {(skill) => (
+                  <text fg={skill.state === "archived" ? theme.dim : theme.muted} wrapMode="word">
+                    {`${skill.name} [${skill.state}] · used ${skill.use_count}× · ${skill.description}`}
+                  </text>
+                )}
+              </For>
+              <SectionLabel>lessons</SectionLabel>
+              <For
+                each={(value().lessons ?? []).slice(0, 8)}
+                fallback={<text fg={theme.dim}>No lessons yet.</text>}
+              >
+                {(lesson) => (
+                  <text fg={theme.muted} wrapMode="word">
+                    {`[${lesson.confidence}] ${lesson.cue}: ${lesson.lesson}`}
+                  </text>
+                )}
+              </For>
+            </>
+          )}
+        </Show>
+        <box flexGrow={1} />
+        <text fg={theme.dim}>Esc closes</text>
+      </box>
+    </Modal>
   )
 }
 

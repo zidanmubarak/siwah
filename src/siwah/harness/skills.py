@@ -14,6 +14,7 @@ from pathlib import Path
 from ..paths import harness_dir
 from ..plugins import plugin_skill_roots
 from .memory import secret_marker
+from .skill_usage import archived_names
 
 MAX_DESCRIPTION = 500
 MAX_SKILL_BODY = 64_000
@@ -141,9 +142,12 @@ def _summary(path: Path, text: str) -> SkillSummary | None:
     return SkillSummary(name=name, description=description[:MAX_DESCRIPTION])
 
 
-def list_skills(workspace: Path | None = None) -> list[SkillSummary]:
+def list_skills(
+    workspace: Path | None = None, *, include_archived: bool = False
+) -> list[SkillSummary]:
     skills: list[SkillSummary] = []
     seen: set[str] = set()
+    archived = set() if include_archived else archived_names()
     for root in _skill_roots(workspace):
         if not root.is_dir():
             continue
@@ -155,7 +159,7 @@ def list_skills(workspace: Path | None = None) -> list[SkillSummary]:
                 summary = _summary(path, path.read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 continue
-            if summary and summary.name not in seen:
+            if summary and summary.name not in seen and summary.name not in archived:
                 seen.add(summary.name)
                 skills.append(summary)
     return skills

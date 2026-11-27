@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..core.questions import Question
 from ..core.types import ToolCall
 
 
@@ -210,6 +211,29 @@ class MemoryResponse(BaseModel):
     quick: MemoryFileInfo
 
 
+class LearningSkill(BaseModel):
+    name: str
+    description: str = ""
+    state: str = "active"
+    use_count: int = 0
+    created_by: str = "unknown"
+
+
+class LearningLesson(BaseModel):
+    cue: str
+    lesson: str
+    confidence: str = "medium"
+    source: str = "user"
+    created: str = ""
+
+
+class LearningGraphResponse(BaseModel):
+    skills: list[LearningSkill] = Field(default_factory=list)
+    lessons: list[LearningLesson] = Field(default_factory=list)
+    evolution_tag: str | None = None
+    evolution_status: str = "idle"
+
+
 class InitMemoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -337,6 +361,24 @@ class PermissionDecisionRequest(BaseModel):
 
     decision: Literal["once", "session", "always", "deny"]
     reason: str | None = None
+
+
+class QuestionRequest(Question):
+    request_id: str
+    tool_call_id: str | None = None
+
+
+class QuestionReply(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    answer: str | None = Field(default=None, max_length=4000)
+    dismissed: bool = False
+
+    @model_validator(mode="after")
+    def one_choice(self) -> QuestionReply:
+        if self.dismissed == (self.answer is not None):
+            raise ValueError("Supply an answer or dismiss the question")
+        return self
 
 
 class PermissionDecisionResponse(BaseModel):

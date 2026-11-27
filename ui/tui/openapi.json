@@ -844,6 +844,108 @@
         "title": "InitMemoryResponse",
         "type": "object"
       },
+      "LearningGraphResponse": {
+        "properties": {
+          "evolution_status": {
+            "default": "idle",
+            "title": "Evolution Status",
+            "type": "string"
+          },
+          "evolution_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evolution Tag"
+          },
+          "lessons": {
+            "items": {
+              "$ref": "#/components/schemas/LearningLesson"
+            },
+            "title": "Lessons",
+            "type": "array"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/LearningSkill"
+            },
+            "title": "Skills",
+            "type": "array"
+          }
+        },
+        "title": "LearningGraphResponse",
+        "type": "object"
+      },
+      "LearningLesson": {
+        "properties": {
+          "confidence": {
+            "default": "medium",
+            "title": "Confidence",
+            "type": "string"
+          },
+          "created": {
+            "default": "",
+            "title": "Created",
+            "type": "string"
+          },
+          "cue": {
+            "title": "Cue",
+            "type": "string"
+          },
+          "lesson": {
+            "title": "Lesson",
+            "type": "string"
+          },
+          "source": {
+            "default": "user",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cue",
+          "lesson"
+        ],
+        "title": "LearningLesson",
+        "type": "object"
+      },
+      "LearningSkill": {
+        "properties": {
+          "created_by": {
+            "default": "unknown",
+            "title": "Created By",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "default": "active",
+            "title": "State",
+            "type": "string"
+          },
+          "use_count": {
+            "default": 0,
+            "title": "Use Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "LearningSkill",
+        "type": "object"
+      },
       "McpServerStatus": {
         "properties": {
           "description": {
@@ -1475,6 +1577,125 @@
           "provider"
         ],
         "title": "ProviderModels",
+        "type": "object"
+      },
+      "QuestionOption": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 350,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "title": "QuestionOption",
+        "type": "object"
+      },
+      "QuestionReply": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "dismissed": {
+            "default": false,
+            "title": "Dismissed",
+            "type": "boolean"
+          }
+        },
+        "title": "QuestionReply",
+        "type": "object"
+      },
+      "QuestionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_custom": {
+            "default": true,
+            "description": "Allow an answer other than a listed choice.",
+            "title": "Allow Custom",
+            "type": "boolean"
+          },
+          "header": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Very short label for the question.",
+            "title": "Header"
+          },
+          "multiple": {
+            "default": false,
+            "description": "Allow selecting multiple choices.",
+            "title": "Multiple",
+            "type": "boolean"
+          },
+          "options": {
+            "description": "Distinct choices, in display order.",
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            },
+            "maxItems": 8,
+            "title": "Options",
+            "type": "array"
+          },
+          "question": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          }
+        },
+        "required": [
+          "question",
+          "request_id"
+        ],
+        "title": "QuestionRequest",
         "type": "object"
       },
       "QueuedPromptResponse": {
@@ -2417,7 +2638,7 @@
   "info": {
     "description": "Local HTTP + SSE protocol for siwah clients.",
     "title": "siwah",
-    "version": "1.0.5"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3267,6 +3488,71 @@
           }
         },
         "summary": "Harness Init",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/harness/learning": {
+      "get": {
+        "operationId": "harness_learning_v1_harness_learning_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cwd",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cwd"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harness Learning",
         "tags": [
           "siwah"
         ]
@@ -5033,6 +5319,149 @@
           }
         },
         "summary": "Plan",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/question": {
+      "get": {
+        "operationId": "pending_question_v1_sessions__session_id__question_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/QuestionRequest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Pending Question V1 Sessions  Session Id  Question Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pending Question",
+        "tags": [
+          "siwah"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/questions/{request_id}": {
+      "post": {
+        "operationId": "reply_question_v1_sessions__session_id__questions__request_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionReply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reply Question",
         "tags": [
           "siwah"
         ]

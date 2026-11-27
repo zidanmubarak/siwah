@@ -40,7 +40,11 @@ from ..config import (
 from ..core.storage import Store
 from ..core.types import Message, ModelInfo, ProviderEvent
 from ..harness.bootstrap import ensure_harness
+from ..harness.lessons import format_lessons, read_lessons, search_lessons
 from ..harness.memory import read_memory
+from ..harness.memory_review import dedupe_memory, review_memory
+from ..harness.profile import read_profile, update_profile
+from ..harness.skill_usage import curate, record_event, set_pinned, state_for
 from ..harness.skills import list_skills, read_skill
 from ..kernel import repo_root
 from ..kernel.audit import audit_event, read_events
@@ -98,7 +102,8 @@ from ..providers.profiles import (
     set_privacy,
 )
 from ..providers.registry import ProviderRegistry, RoleRouter
-from ..update import apply_update, check_for_update
+from ..tui_install import TuiInstallError, ensure_tui_binary
+from ..update import DEFAULT_REPO, apply_update, check_for_update
 from ..version import __version__
 from .plain_ui import JsonRenderer, PlainRenderer
 
@@ -1422,10 +1427,41 @@ def skills_list() -> None:
         return
     table = Table(title="siwah skills")
     table.add_column("name")
+    table.add_column("state")
     table.add_column("description")
     for skill in skills:
-        table.add_row(skill.name, skill.description)
+        table.add_row(skill.name, state_for(skill.name), skill.description)
     console.print(table)
+
+
+@skills_app.command("curator")
+def skills_curator(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report changes without saving."),
+    stale_after_days: int = typer.Option(14, "--stale-after-days", min=1),
+    archive_after_days: int = typer.Option(30, "--archive-after-days", min=2),
+    pin: str | None = typer.Option(None, "--pin", help="Pin a skill against automation."),
+    unpin: str | None = typer.Option(None, "--unpin", help="Remove a skill pin."),
+) -> None:
+    """Archive stale agent-created skills without deleting them."""
+    ensure_harness()
+    if pin and unpin:
+        typer.echo("Use either --pin or --unpin, not both.", err=True)
+        raise typer.Exit(2)
+    if pin or unpin:
+        name = pin or unpin or ""
+        set_pinned(name, bool(pin))
+        typer.echo(f"{'Pinned' if pin else 'Unpinned'} {name}")
+        return
+    try:
+        result = curate(
+            stale_after_days=stale_after_days,
+            archive_after_days=archive_after_days,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
 
 
 @skills_app.command("view")
@@ -1437,10 +1473,69 @@ def skills_view(name: str = typer.Argument(..., help="Skill name.")) -> None:
     except (FileNotFoundError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
+    with contextlib.suppress(OSError, ValueError):
+        record_event(skill.name, "view")
     typer.echo(f"# {skill.name}")
     typer.echo(skill.description)
     typer.echo()
     typer.echo(skill.content)
+
+
+@memory_app.command("lessons")
+def memory_lessons(
+    query: str | None = typer.Option(None, "--query", help="Search lessons by keyword."),
+    cwd: Path | None = typer.Option(None, "--cwd"),
+) -> None:
+    """Show private experience lessons or search them."""
+    ensure_harness()
+    workspace = (cwd or Path.cwd()).expanduser().resolve()
+    lessons = (
+        search_lessons(workspace, query)
+        if query
+        else sorted(read_lessons(workspace), key=lambda item: item.created, reverse=True)
+    )
+    typer.echo(format_lessons(lessons))
+
+
+@memory_app.command("profile")
+def memory_profile(
+    set_values: list[str] | None = typer.Option(
+        None, "--set", help="Set a profile field: key=value. Repeatable."
+    ),
+) -> None:
+    """Show or update the durable local user profile."""
+    if set_values:
+        updates: dict[str, str] = {}
+        for item in set_values:
+            key, separator, value = item.partition("=")
+            if not separator or not key.strip():
+                typer.echo(f"Invalid profile field: {item}", err=True)
+                raise typer.Exit(2)
+            updates[key.strip()] = value.strip()
+        try:
+            update_profile(**updates)
+        except (OSError, ValueError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from exc
+    typer.echo(json.dumps(read_profile(), indent=2, ensure_ascii=False))
+
+
+@memory_app.command("review")
+def memory_review(
+    dedupe: bool = typer.Option(False, "--dedupe", help="Remove exact duplicate entries."),
+    cwd: Path | None = typer.Option(None, "--cwd"),
+) -> None:
+    """Report duplicate and same-key-conflicting memory entries."""
+    ensure_harness()
+    workspace = (cwd or Path.cwd()).expanduser().resolve()
+    if dedupe:
+        typer.echo(json.dumps(dedupe_memory(workspace, apply=True), indent=2))
+        return
+    findings = [item.as_dict() for item in review_memory(workspace)]
+    if not findings:
+        typer.echo("Memory looks consistent.")
+        return
+    typer.echo(json.dumps(findings, indent=2))
 
 
 @memory_app.command("show")
@@ -2176,6 +2271,22 @@ def clean(
         store.close()
 
 
+@app.command("install-tui")
+def install_tui(
+    force: bool = typer.Option(False, "--force", help="Download even if a binary is present."),
+    version: str | None = typer.Option(
+        None, "--version", help="Release version to download; defaults to this siwah version."
+    ),
+) -> None:
+    """Download the platform TUI binary from the matching GitHub release."""
+    try:
+        path = ensure_tui_binary(version=version, force=force)
+    except TuiInstallError as exc:
+        typer.echo(f"Could not install the TUI: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"TUI installed to {path}")
+
+
 @app.command("update")
 def update(
     apply: bool = typer.Option(
@@ -2391,16 +2502,35 @@ def launch_tui(*, allow_all: bool = False) -> None:
                 workdir = str(Path.cwd())
             else:
                 bun = _find_bun()
-                if bun is None or not source.is_file():
-                    typer.echo(
-                        "The TUI needs a compiled siwah-tui binary (or Bun with the TUI source). "
-                        "Put it in ~/.siwah/bin/, next to the siwah executable, or set "
-                        "SIWAH_TUI_BINARY. Use `siwah run ... --ui plain` when no TUI is available.",
-                        err=True,
-                    )
-                    raise typer.Exit(1)
-                command = [bun, "--conditions=browser", str(source)]
-                workdir = str(tui_dir)
+                if bun is not None and source.is_file():
+                    command = [bun, "--conditions=browser", str(source)]
+                    workdir = str(tui_dir)
+                else:
+                    downloaded = False
+                    download_error = ""
+                    if os.environ.get("SIWAH_TUI_AUTO_DOWNLOAD", "1") != "0":
+                        typer.echo("Downloading the siwah TUI for this platform…")
+                        try:
+                            binary = ensure_tui_binary()
+                        except TuiInstallError as exc:
+                            download_error = f"\nDownload failed: {exc}"
+                        else:
+                            command = [str(binary)]
+                            workdir = str(Path.cwd())
+                            downloaded = True
+                    if not downloaded:
+                        typer.echo(
+                            "The TUI needs a compiled siwah-tui binary (or Bun with the TUI "
+                            "source). Install the full source build with:\n"
+                            "  curl -fsSL "
+                            f"https://raw.githubusercontent.com/{DEFAULT_REPO}/main/"
+                            "scripts/install/bootstrap.sh | bash\n"
+                            "Or put the binary in ~/.siwah/bin/, next to the siwah executable, "
+                            "or set SIWAH_TUI_BINARY. Use `siwah run ... --ui plain` when no TUI "
+                            f"is available.{download_error}",
+                            err=True,
+                        )
+                        raise typer.Exit(1)
             try:
                 server, token, daemon = _ensure_daemon()
             except RuntimeError as exc:

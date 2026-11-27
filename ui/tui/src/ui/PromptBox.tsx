@@ -58,11 +58,12 @@ export function PromptBox(props: {
   let submitting = false
   let disposed = false
   let ownershipRevision = 0
-  const available = () => !disposed && !store.dialog() && !store.permission()
+  const available = () => !disposed && !store.dialog() && !store.permission() && !store.question()
   const ownsInput = () => available() && Boolean(area?.focused)
   createEffect(() => {
     store.dialog()
     store.permission()
+    store.question()
     ownershipRevision += 1
     if (!available()) area?.blur()
   })

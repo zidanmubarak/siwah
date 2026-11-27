@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +71,7 @@ def test_subagent_specs_reload_after_file_created(config: Config, store: Store, 
 @pytest.mark.asyncio
 async def test_task_tool_returns_isolated_child_result(tmp_path: Path):
     class FakeManager:
-        async def run(self, name: str, prompt: str, *, description: str = ""):
+        async def run(self, name: str, prompt: str, *, description: str = "", **_: Any):
             return SubagentResult(
                 name=name,
                 text=f"found: {prompt}",
@@ -116,8 +117,10 @@ async def test_agent_loop_runs_a_child_session(config, store: Store, sample_repo
     loop = make_loop(config, store, adapter)
     session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
 
-    async def emit(_event: str, _data: dict) -> None:
-        return None
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(event: str, data: dict) -> None:
+        events.append((event, data))
 
     result = await loop.run(session, "delegate the inspection", emit=emit, max_steps=5)
 
@@ -130,6 +133,63 @@ async def test_agent_loop_runs_a_child_session(config, store: Store, sample_repo
     assert len(children) == 1
     assert children[0].metadata["subagent"] == "explore"
     assert children[0].metadata["depth"] == 1
+    parent_call = store.get_tool_calls(session.id)[0]["id"]
+    assert children[0].metadata["parent_tool_call_id"] == parent_call
+    child_events = [(name, data) for name, data in events if name.startswith("subagent.")]
+    assert child_events[0][0] == "subagent.start"
+    assert all(
+        data["task_call_id"] == parent_call and data["session_id"] == children[0].id
+        for _name, data in child_events
+    )
+    assert any(
+        name == "subagent.event"
+        and data["event"] == "message.start"
+        and data["data"]["role"] == "assistant"
+        for name, data in child_events
+    )
+    assert child_events[-1][0] == "subagent.end"
+    assert child_events[-1][1]["status"] == "completed"
+    parent_results = [
+        message.content for message in adapter.requests[-1].messages if message.role == "tool"
+    ]
+    assert parent_results == ["child found the README"]
+
+
+async def test_aborting_parent_reports_cancelled_child(config, store: Store, sample_repo: Path):
+    class BlockingAdapter(ScriptedAdapter):
+        async def stream_chat(self, request, *, session_id, emit):
+            if self.requests:
+                child_started.set()
+                await asyncio.Future()
+            return await super().stream_chat(request, session_id=session_id, emit=emit)
+
+    child_started = asyncio.Event()
+    adapter = BlockingAdapter(
+        [outcome(tool_calls=[tool_call("task", {"subagent_type": "explore", "prompt": "wait"})])],
+        config.providers["mock"],
+    )
+    loop = make_loop(config, store, adapter)
+    session = store.create_session(cwd=str(sample_repo), model="mock/model-a")
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(event: str, data: dict) -> None:
+        events.append((event, data))
+
+    task = asyncio.create_task(loop.run(session, "delegate", emit=emit, max_steps=5))
+    try:
+        await asyncio.wait_for(child_started.wait(), timeout=3)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    child_end = next(data for name, data in events if name == "subagent.end")
+    assert child_end["status"] == "cancelled"
+    child = store.get_session(child_end["session_id"])
+    assert child is not None and child.status == "idle"
+    assert len(adapter.requests) == 1
 
 
 def test_subagent_manager_specs_include_defaults(tmp_path: Path):

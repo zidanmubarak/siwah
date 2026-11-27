@@ -20,6 +20,7 @@ export type ModelCatalog = Schemas["ModelCatalogResponse"]
 export type ModelSummary = Schemas["ModelSummary"]
 export type EventEnvelope = Schemas["EventEnvelope"]
 export type PermissionChoice = "once" | "session" | "always" | "deny"
+export type QuestionRequest = Schemas["QuestionRequest"]
 export type CreateSession = Schemas["CreateSessionRequest"]
 export type UpdateSession = Schemas["UpdateSessionRequest"]
 export type ShellResult = Schemas["ShellResponse"]
@@ -28,6 +29,7 @@ export type ChatGPTAccount = Schemas["ChatGPTAccount"]
 export type ForkResult = Schemas["ForkSessionResponse"]
 export type SkillList = Schemas["SkillListResponse"]
 export type SkillContent = Schemas["SkillContentResponse"]
+export type LearningGraph = Schemas["LearningGraphResponse"]
 export type MemoryView = Schemas["MemoryResponse"]
 export type InitMemory = Schemas["InitMemoryResponse"]
 export type QuickNote = Schemas["QuickNoteResponse"]
@@ -369,6 +371,25 @@ export class SiwahApi {
     )
   }
 
+  pendingQuestion(sessionId: string) {
+    return this.request<QuestionRequest | null>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/question`,
+    )
+  }
+
+  answerQuestion(sessionId: string, requestId: string, answer: string | null) {
+    const reply: Schemas["QuestionReply"] =
+      answer === null ? { dismissed: true } : { answer, dismissed: false }
+    return this.request<Schemas["OkResponse"]>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reply),
+      },
+    )
+  }
+
   models(provider?: string) {
     const suffix = provider ? `?provider=${encodeURIComponent(provider)}` : ""
     return this.request<ModelCatalog>(`/v1/models${suffix}`)
@@ -399,6 +420,12 @@ export class SiwahApi {
   skill(name: string, cwd?: string) {
     return this.request<SkillContent>(
       `/v1/harness/skills/${encodeURIComponent(name)}${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`,
+    )
+  }
+
+  learning(cwd?: string) {
+    return this.request<LearningGraph>(
+      `/v1/harness/learning${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`,
     )
   }
 

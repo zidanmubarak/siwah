@@ -12,11 +12,22 @@ from typing import Any
 
 from .schema import EventEnvelope
 
+_TOOL_ACTIVITY_HISTORY = 128
+
+
+def _is_terminal_activity(entry: dict[str, Any]) -> bool:
+    data = entry.get("data")
+    if not isinstance(data, dict):
+        return False
+    status = data.get("status")
+    return status in {"completed", "failed", "killed", "error", "cancelled"}
+
 
 class EventBus:
     def __init__(self, session_id: str, retention: int = 2000) -> None:
         self.session_id = session_id
         self._events: deque[EventEnvelope] = deque(maxlen=retention)
+        self._tool_activity: dict[tuple[str, str], dict[str, Any]] = {}
         self._subscribers: set[asyncio.Queue[EventEnvelope]] = set()
         self._sequence = 0
         self._lock = asyncio.Lock()
@@ -36,10 +47,78 @@ class EventBus:
                 data=data,
             )
             self._events.append(envelope)
+            self._remember_tool_activity(envelope)
             for queue in tuple(self._subscribers):
                 if not queue.full():
                     queue.put_nowait(envelope)
         return envelope
+
+    def _remember_tool_activity(self, envelope: EventEnvelope) -> None:
+        event_type = envelope.type
+        data = envelope.data
+        if event_type in {"job.started", "job.progress", "job.completed"}:
+            call_id, actor_id = data.get("tool_call_id"), data.get("id")
+            fields = ("tool_call_id", "id", "status", "lines_read", "returncode")
+            snapshot = {key: data[key] for key in fields if key in data}
+        elif event_type in {"subagent.start", "subagent.event", "subagent.end"}:
+            call_id, actor_id = data.get("task_call_id"), data.get("session_id")
+            snapshot = {
+                "task_call_id": call_id,
+                "session_id": actor_id,
+                "subagent": str(data.get("subagent") or "Subagent")[:80],
+            }
+            if event_type == "subagent.event":
+                nested_type, nested = data.get("event"), data.get("data")
+                if not isinstance(nested, dict):
+                    return
+                if nested_type == "tool.start":
+                    snapshot.update(
+                        event=nested_type, data={"name": str(nested.get("name") or "Tool")[:80]}
+                    )
+                elif nested_type == "message.start" and nested.get("role") == "assistant":
+                    snapshot.update(event=nested_type, data={"role": "assistant"})
+                elif nested_type in {"job.started", "job.progress", "job.completed"}:
+                    snapshot.update(
+                        event=nested_type,
+                        data={
+                            "status": nested.get("status"),
+                            "lines_read": nested.get("lines_read"),
+                            "returncode": nested.get("returncode"),
+                        },
+                    )
+                else:
+                    return
+            elif event_type == "subagent.end":
+                snapshot["status"] = data.get("status") or (
+                    "error" if data.get("error") else "completed"
+                )
+        else:
+            return
+        if (
+            not isinstance(call_id, str)
+            or not isinstance(actor_id, str)
+            or not call_id
+            or not actor_id
+        ):
+            return
+        key = (call_id, actor_id)
+        self._tool_activity.pop(key, None)
+        self._tool_activity[key] = {"seq": envelope.seq, "type": event_type, "data": snapshot}
+        if len(self._tool_activity) > _TOOL_ACTIVITY_HISTORY:
+            self._evict_tool_activity()
+
+    def _evict_tool_activity(self) -> None:
+        terminal = (
+            key for key, entry in self._tool_activity.items() if _is_terminal_activity(entry)
+        )
+        victim = next(terminal, None)
+        if victim is None:
+            victim = next(iter(self._tool_activity))
+        self._tool_activity.pop(victim, None)
+
+    def tool_activity(self) -> list[dict[str, Any]]:
+        """Return compact transient progress, independent of SSE replay retention."""
+        return list(self._tool_activity.values())
 
     def history(self, after: int = 0) -> list[EventEnvelope]:
         return [event for event in self._events if event.seq > after]

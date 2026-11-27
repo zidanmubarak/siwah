@@ -11,8 +11,11 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
+from pydantic import ValidationError
 
+from ..core.questions import Question
 from ..jobs import stop_and_drain
+from ..kernel.secrets import redact_secrets
 from ..permissions.policy import PermissionRequest
 from ..process import terminate_process_tree
 from ..shell import shell_argv
@@ -21,6 +24,7 @@ from .base import (
     Tool,
     ToolContext,
     ToolResult,
+    boolean_property,
     integer_property,
     object_schema,
     string_property,
@@ -84,7 +88,9 @@ class BashTool(Tool):
             if manager is None:
                 return ToolResult.failure("Background jobs are unavailable")
             try:
-                job = await manager.start(command)
+                job = await manager.start(
+                    command, tool_call_id=context.tool_call_id, emit=context.emit
+                )
             except RuntimeError as exc:
                 return ToolResult.failure(str(exc))
             return ToolResult.success(
@@ -232,20 +238,108 @@ class TodoTool(Tool):
         )
 
 
+_QUESTION_OPTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "label": string_property("Short choice label."),
+        "description": string_property("One-line explanation of the choice."),
+    },
+    "required": ["label"],
+    "additionalProperties": False,
+}
+
+_QUESTION_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "header": string_property("Very short label (max 30 characters)."),
+        "question": string_property("Complete question for the user."),
+        "options": {
+            "type": "array",
+            "description": (
+                "Distinct choices in display order. Keep labels to 1-5 words. "
+                "Do not add a separate free-form option."
+            ),
+            "maxItems": 8,
+            "items": _QUESTION_OPTION_SCHEMA,
+        },
+        "multiple": boolean_property("Allow selecting more than one choice.", False),
+        "allow_custom": boolean_property("Allow an answer other than a listed choice.", True),
+    },
+    "required": ["question"],
+    "additionalProperties": False,
+}
+
+
 class AskUserTool(Tool):
     name = "ask_user"
-    description = "Ask the user a question and wait for the answer. Only available interactively."
+    description = (
+        "Ask one or more questions and wait for the user's answers. Supply concise options "
+        "when the user can choose between specific directions; set multiple=true for a "
+        "multi-select question. A custom answer is available by default. If you recommend "
+        "an option, put it first and end its label with (Recommended)."
+    )
     kind = "user"
     parameters = object_schema(
-        {"question": string_property("Question to ask the user.")},
-        ["question"],
+        {
+            "question": string_property("Question for the user; omit when using questions."),
+            "header": string_property("Very short label (max 30 characters)."),
+            "options": {
+                "type": "array",
+                "description": (
+                    "Distinct choices in display order. Keep labels to 1-5 words. "
+                    "Do not add a separate free-form option."
+                ),
+                "maxItems": 8,
+                "items": _QUESTION_OPTION_SCHEMA,
+            },
+            "multiple": boolean_property("Allow selecting more than one choice.", False),
+            "allow_custom": boolean_property("Allow an answer other than a listed choice.", True),
+            "questions": {
+                "type": "array",
+                "description": "One or more questions, asked in order. Omit for a single question.",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": _QUESTION_ITEM_SCHEMA,
+            },
+        },
     )
 
     async def run(self, context: ToolContext, **arguments: Any) -> ToolResult:
         if context.ask_user is None:
             return ToolResult.failure("ask_user is unavailable in this non-interactive run")
-        answer = await context.ask_user(str(arguments["question"]))
-        return ToolResult.success(answer)
+        raw_questions = arguments.pop("questions", None)
+        if raw_questions is not None and any(
+            key in arguments
+            for key in ("question", "header", "options", "multiple", "allow_custom")
+        ):
+            return ToolResult.failure("Supply either question fields or questions, not both")
+        try:
+            if raw_questions is not None:
+                if not isinstance(raw_questions, list) or not raw_questions:
+                    return ToolResult.failure("questions must be a non-empty array")
+                if len(raw_questions) > 8:
+                    return ToolResult.failure("At most 8 questions are allowed")
+                questions = [Question.model_validate(item) for item in raw_questions]
+            else:
+                questions = [Question.model_validate(arguments)]
+        except ValidationError as exc:
+            messages = "; ".join(error["msg"] for error in exc.errors(include_input=False))
+            return ToolResult.failure(f"Invalid ask_user request: {messages}")
+        answers: list[tuple[Question, str]] = []
+        for question in questions:
+            answer = await context.ask_user(question, context.tool_call_id)
+            if answer is None:
+                return ToolResult.failure(
+                    "The question was dismissed or timed out without an answer"
+                )
+            answers.append((question, question.validate_answer(answer)))
+        if len(answers) == 1:
+            output = answers[0][1]
+        else:
+            output = "\n".join(
+                f"{question.header or question.question}: {answer}" for question, answer in answers
+            )
+        return ToolResult.success(redact_secrets(output))
 
 
 class WebFetchTool(Tool):
@@ -349,11 +443,23 @@ def _html_to_text(value: str) -> str:
 
 def default_tools() -> list[Tool]:
     from .fs import EditFileTool, GlobTool, GrepTool, ReadFileTool, WriteFileTool
-    from .harness import MemoryWriteTool, RecallTool, SkillListTool, SkillManageTool, SkillViewTool
+    from .harness import (
+        MemoryReviewTool,
+        MemoryWriteTool,
+        ProfileReadTool,
+        ProfileWriteTool,
+        RecallTool,
+        SkillListTool,
+        SkillManageTool,
+        SkillViewTool,
+    )
+    from .lessons import LessonSearchTool, LessonWriteTool
     from .mcp import McpTool
     from .output import ToolOutputTool
     from .repo import RefsTool, RepoMapTool, SymbolsTool
+    from .status import SelfStatusTool
     from .task import TaskTool
+    from .verify import VerifyTool
 
     return [
         ReadFileTool(),
@@ -365,8 +471,15 @@ def default_tools() -> list[Tool]:
         JobsTool(),
         TodoTool(),
         AskUserTool(),
+        SelfStatusTool(),
+        VerifyTool(),
         WebFetchTool(),
         MemoryWriteTool(),
+        MemoryReviewTool(),
+        ProfileReadTool(),
+        ProfileWriteTool(),
+        LessonWriteTool(),
+        LessonSearchTool(),
         SkillManageTool(),
         SkillViewTool(),
         SkillListTool(),

@@ -106,6 +106,19 @@ def test_check_and_apply_update_from_the_upstream_branch(tmp_path: Path, monkeyp
     assert (work / "pyproject.toml").read_text(encoding="utf-8").count("9.9.9") == 1
 
 
+def test_release_tag_wins_over_an_unreleased_branch_version(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
+    upstream, work = _repo_with_remote(tmp_path)
+    _git(upstream, "tag", "-a", "v99.0.0", "-m", "siwah 99.0.0")
+    _git(upstream, "push", "origin", "v99.0.0")
+    _bump(upstream, "9.9.9")
+
+    status = check_for_update(refresh=True, root=work)
+    assert status.latest == "99.0.0"
+    assert status.source == "tag"
+    assert status.available is True
+
+
 def test_apply_refuses_a_dirty_checkout(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("SIWAH_HOME", str(tmp_path / "home"))
     upstream, work = _repo_with_remote(tmp_path)

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from ..config import AgentConfig
+from ..core.questions import AskUser
 from ..core.types import ToolSpec
 from ..permissions.policy import Approval, Approver, PermissionPolicy, PermissionRequest
 
@@ -51,7 +52,7 @@ class ToolContext:
     session_id: str
     agent_config: AgentConfig
     approver: Approver | None = None
-    ask_user: Callable[[str], Awaitable[str]] | None = None
+    ask_user: AskUser | None = None
     todos: list[TodoItem] = field(default_factory=list)
     read_hashes: dict[str, str] = field(default_factory=dict)
     store: Store | None = None
@@ -64,6 +65,12 @@ class ToolContext:
     verify_repair_attempts: int = 0
     verify_failed: bool = False
     memory_writes: int = 0
+    context_tokens: int | None = None
+    context_percent: float | None = None
+    context_window: int | None = None
+    allowance: float = 0.0
+    tool_names: list[str] = field(default_factory=list)
+    step: int = 0
     emit: EventEmitter | None = None
     permission_resolver: PermissionResolver | None = None
     subagent_manager: Any = None

@@ -8,21 +8,26 @@ export function ActivityBar(props: {
   away: boolean
   jumpKey: string
   cancelKey: string
+  exitKey: string
   onJump: () => void
 }) {
   const store = useStore()
   const theme = useTheme()
   const dimensions = useDimensions()
   const [now, setNow] = createSignal(Date.now())
-  const spinning = () => store.running() && !store.permission() && !store.providerRetry()
+  const spinning = () =>
+    store.running() && !store.permission() && !store.question() && !store.providerRetry()
   const queueLabel = () => {
     const queue = store.queuedPrompts()
     return queue.length
       ? `${queue.length} queued${queue[0]?.blockedReason ? " (blocked)" : ""}`
       : ""
   }
-  const shortcut = () =>
-    props.away ? `↓ latest · ${props.jumpKey}` : store.running() ? `${props.cancelKey} cancel` : ""
+  const shortcut = () => {
+    if (props.away) return `↓ latest · ${props.jumpKey}`
+    if (store.question() && !store.permission()) return `${props.exitKey} cancel run`
+    return store.running() ? `${props.cancelKey} cancel` : ""
+  }
   const activityWidth = () => {
     const labels = [queueLabel(), shortcut()].filter(Boolean)
     const reserved = labels.reduce((width, label) => width + Bun.stringWidth(label) + 1, 0)
@@ -36,6 +41,7 @@ export function ActivityBar(props: {
   })
   const activity = createMemo(() => {
     if (store.permission()) return "permission required"
+    if (store.question()) return "waiting for your answer"
     if (!store.running()) return ""
     const retry = store.providerRetry()
     if (retry) {
@@ -78,7 +84,9 @@ export function ActivityBar(props: {
           wrapMode="none"
           flexShrink={0}
           onMouseDown={() => {
-            if (!store.dialog() && !store.permission()) store.openDialog({ type: "pending" })
+            if (!store.dialog() && !store.permission() && !store.question()) {
+              store.openDialog({ type: "pending" })
+            }
           }}
         >
           {queueLabel()}

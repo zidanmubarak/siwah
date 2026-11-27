@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 from ..harness.memory import redact_secrets, secret_marker, write_memory
+from ..harness.memory_review import review_memory
+from ..harness.profile import profile_path, read_profile, update_profile
+from ..harness.skill_usage import record_event, set_pinned, state_for
 from ..harness.skills import (
     create_skill,
     delete_skill,
@@ -22,7 +28,8 @@ class MemoryWriteTool(Tool):
     name = "memory_write"
     description = (
         "Store durable user or project memory. User memory applies across projects; "
-        "project memory is loaded for this workspace in later sessions."
+        "project memory is loaded for this workspace in later sessions. Include a "
+        "source and confidence so later sessions can judge the fact."
     )
     kind = "write"
     parameters = object_schema(
@@ -39,6 +46,18 @@ class MemoryWriteTool(Tool):
                 "default": "append",
                 "description": "Append a block or replace the whole file.",
             },
+            "source": {
+                "type": "string",
+                "enum": ["user", "agent", "system"],
+                "default": "agent",
+                "description": "Where this memory came from.",
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+                "default": "medium",
+                "description": "How strongly the evidence supports it.",
+            },
         },
         ["target", "content"],
     )
@@ -47,6 +66,12 @@ class MemoryWriteTool(Tool):
         target = str(arguments.get("target", "user"))
         content = str(arguments.get("content", ""))
         mode = str(arguments.get("mode", "append"))
+        source = str(arguments.get("source", "agent"))
+        confidence = str(arguments.get("confidence", "medium"))
+        if source not in {"user", "agent", "system"}:
+            return ToolResult.failure("source must be user, agent, or system")
+        if confidence not in {"low", "medium", "high"}:
+            return ToolResult.failure("confidence must be low, medium, or high")
         marker = secret_marker(content)
         if marker:
             return ToolResult.failure(f"refusing to store a {marker}")
@@ -59,6 +84,12 @@ class MemoryWriteTool(Tool):
         )
         if not allowed:
             return ToolResult.failure(reason or "Memory write denied")
+        if mode == "append":
+            stamp = datetime.now(UTC).date().isoformat()
+            content = (
+                f"- {stamp} · confidence={confidence} · source={source}: "
+                + content.strip().replace("\n", "\n  ")
+            )
         try:
             path, changed = write_memory(
                 context.workspace, target=target, content=content, mode=mode
@@ -70,6 +101,77 @@ class MemoryWriteTool(Tool):
         return ToolResult.success(
             f"Wrote {target} memory to {path}. It is loaded in the next session.",
             data={"path": str(path), "target": target},
+        )
+
+
+class ProfileReadTool(Tool):
+    name = "profile_read"
+    description = "Read the durable local user profile (language, stack, testing, preferences)."
+    kind = "read"
+    parameters = object_schema({})
+
+    async def run(self, context: ToolContext, **arguments: Any) -> ToolResult:
+        return ToolResult.success(json.dumps(read_profile(), indent=2, ensure_ascii=False))
+
+
+class ProfileWriteTool(Tool):
+    name = "profile_write"
+    description = (
+        "Update the durable local user profile. Supply only fields you have evidence for; "
+        "this is not a place for secrets or one-off task details."
+    )
+    kind = "write"
+    parameters = object_schema(
+        {
+            "language": string_property("Preferred response language."),
+            "communication": string_property("Preferred response style and length."),
+            "stack": string_property("Comma-separated languages/frameworks."),
+            "testing": string_property("Comma-separated test or verification commands."),
+            "risk_tolerance": string_property("How much autonomy the user prefers."),
+            "preferences": string_property("Comma-separated durable preferences."),
+            "notes": string_property("Other concise profile facts."),
+        }
+    )
+
+    async def run(self, context: ToolContext, **arguments: Any) -> ToolResult:
+        if not arguments:
+            return ToolResult.failure("Supply at least one profile field")
+        allowed, reason = await context.authorize(
+            PermissionRequest(
+                tool=self.name,
+                kind="write",
+                preview=f"User profile update: {', '.join(sorted(arguments))}",
+            )
+        )
+        if not allowed:
+            return ToolResult.failure(reason or "Profile write denied")
+        try:
+            data = update_profile(**arguments)
+        except (OSError, ValueError) as exc:
+            return ToolResult.failure(str(exc))
+        return ToolResult.success(
+            f"Updated user profile at {profile_path()}",
+            data=data,
+        )
+
+
+class MemoryReviewTool(Tool):
+    name = "memory_review"
+    description = (
+        "Review private user, project, and quick memory for exact duplicates or "
+        "same-key conflicts. Report findings only; edit memory deliberately."
+    )
+    kind = "read"
+    parameters = object_schema({})
+
+    async def run(self, context: ToolContext, **arguments: Any) -> ToolResult:
+        try:
+            findings = review_memory(context.workspace)
+        except (OSError, ValueError) as exc:
+            return ToolResult.failure(str(exc))
+        return ToolResult.success(
+            json.dumps([item.as_dict() for item in findings], indent=2, ensure_ascii=False),
+            data={"count": len(findings)},
         )
 
 
@@ -116,7 +218,16 @@ class SkillManageTool(Tool):
         {
             "action": {
                 "type": "string",
-                "enum": ["create", "update", "edit", "patch", "delete", "list"],
+                "enum": [
+                    "create",
+                    "update",
+                    "edit",
+                    "patch",
+                    "delete",
+                    "list",
+                    "pin",
+                    "unpin",
+                ],
             },
             "name": string_property("Skill name (lowercase, digits, hyphens)."),
             "description": string_property("Short description shown in the skill index."),
@@ -164,6 +275,7 @@ class SkillManageTool(Tool):
                     str(arguments.get("content", "")),
                     overwrite=bool(arguments.get("overwrite", False)),
                 )
+                record_event(skill.name, "create", created_by="agent")
                 return ToolResult.success(f"Created skill {skill.name} at {skill.path}")
             if action in {"update", "edit"}:
                 skill = update_skill(
@@ -172,6 +284,7 @@ class SkillManageTool(Tool):
                     content=arguments.get("content"),
                     workspace=context.workspace,
                 )
+                record_event(skill.name, "patch")
                 return ToolResult.success(f"Updated skill {skill.name} at {skill.path}")
             if action == "patch":
                 current = read_skill(name, context.workspace)
@@ -191,9 +304,20 @@ class SkillManageTool(Tool):
                     content=current.content.replace(old, new, 1),
                     workspace=context.workspace,
                 )
+                record_event(skill.name, "patch")
                 return ToolResult.success(f"Patched skill {skill.name} at {skill.path}")
+            if action in {"pin", "unpin"}:
+                if not skill_path(name, context.workspace).is_file():
+                    return ToolResult.failure(f"Skill not found: {name}")
+                set_pinned(name, action == "pin")
+                record_event(name, action)
+                return ToolResult.success(
+                    f"{'Pinned' if action == 'pin' else 'Unpinned'} skill {name}"
+                )
             if action == "delete":
                 deleted = delete_skill(name, context.workspace)
+                if deleted:
+                    record_event(name, "delete")
                 return ToolResult.success(
                     f"Deleted skill {name}" if deleted else f"Skill not found: {name}"
                 )
@@ -231,9 +355,11 @@ class SkillViewTool(Tool):
             skill = read_skill(name, context.workspace)
         except (FileNotFoundError, OSError) as exc:
             return ToolResult.failure(str(exc))
+        with contextlib.suppress(OSError, ValueError):
+            record_event(skill.name, "view")
         return ToolResult.success(
             f"# {skill.name}\n{skill.description}\n\n{skill.content}",
-            data={"name": skill.name, "path": str(skill.path)},
+            data={"name": skill.name, "path": str(skill.path), "state": state_for(skill.name)},
         )
 
 

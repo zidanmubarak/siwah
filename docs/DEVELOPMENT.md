@@ -207,5 +207,5 @@ Include:
 
 ## Release
 
-The release checklist, version synchronization, TestPyPI verification, and PyPI
-trusted publishing notes are in [Releasing](RELEASING.md).
+The release checklist, version synchronization, and PyPI trusted publishing
+notes are in [Releasing](RELEASING.md).

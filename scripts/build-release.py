@@ -1,6 +1,6 @@
 """Build release artifacts: Python wheel, TUI binary, and SHA-256 sums.
 
-This command never publishes. It prints the TestPyPI command for an explicit
+This command never publishes. It prints the PyPI command for an explicit
 human decision after checksums have been reviewed.
 """
 
@@ -63,8 +63,8 @@ def main() -> int:
     (DIST / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print("\n".join(lines))
     print("\nReview the artifacts, then publish explicitly with:")
-    print("  uvx twine upload --repository testpypi dist/*.whl")
-    print("  # binary artifacts are attached to the release, not uploaded to TestPyPI")
+    print("  uvx twine upload dist/*.whl")
+    print("  # binary artifacts are attached to the release, not uploaded to PyPI")
     return 0
 
 

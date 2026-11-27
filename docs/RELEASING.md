@@ -7,11 +7,18 @@ Keep the public branch at the last published release. Develop and commit
 unreleased work in the private checkout, and sync/push the public repository
 only as part of a versioned release.
 
-The 1.0.5 release uses this order:
+The 1.1.0 release uses this order:
 
 1. source bootstrap (primary install);
-2. TestPyPI upload for package verification;
-3. final PyPI publication after verification.
+2. PyPI publication for package installs.
+
+## Commit boundaries
+
+Keep feature and fix commits separate from release metadata. A normal commit may
+contain code, tests, generated contracts, and the kernel manifest. Changelog
+entries belong in a separate `docs(changelog)` commit. Version fields,
+lockfiles, and the final changelog section belong in the approved
+`release: siwah X.Y.Z` commit.
 
 ## Version synchronization
 
@@ -89,16 +96,16 @@ does not contain the TUI binary; verify `--ui plain` works without it.
 
 ```bash
 git add -A
-git commit -m "release: siwah 1.0.5"
-git tag -a v1.0.5 -m "siwah 1.0.5"
+git commit -m "release: siwah 1.1.0"
+git tag -a v1.1.0 -m "siwah 1.1.0"
 git push origin main
-git push origin v1.0.5
+git push origin v1.1.0
 ```
 
-The update checker reads `pyproject.toml` on `origin/main` and falls back to
-semver tags matching `vX.Y.Z`. A release without a version bump is not announced
-in the TUI. GitHub Releases are useful for humans and release notes; `/update`
-does not require a Release object.
+The update checker reads the highest release tag matching `vX.Y.Z` and falls
+back to `pyproject.toml` on `origin/main` only when no version tags exist. An
+ordinary commit is not announced in the TUI. GitHub Releases are useful for
+humans and release notes; `/update` does not require a Release object.
 
 ## Build artifacts
 
@@ -133,16 +140,16 @@ keeps the full project history; the release workflow extracts the matching
 section with:
 
 ```bash
-python scripts/release_notes.py v1.0.5 > release-notes.md
+python scripts/release_notes.py v1.1.0 > release-notes.md
 ```
 
 Then create the release with that file, not the whole changelog:
 
 ```bash
-gh release create v1.0.5 \
-  --title "siwah 1.0.5" \
+gh release create v1.1.0 \
+  --title "siwah 1.1.0" \
   --notes-file release-notes.md \
-  dist/siwah-1.0.5-py3-none-any.whl \
+  dist/siwah-1.1.0-py3-none-any.whl \
   dist/siwah-tui-windows-amd64.exe \
   dist/siwah-tui-linux-x86_64 \
   dist/siwah-tui-darwin-arm64 \
@@ -154,43 +161,20 @@ keep the release notes honest about known limitations. A release fails if the
 version has no matching `## [x.y.z]` section, so add the changelog entry before
 tagging.
 
-## TestPyPI verification
-
-Upload the wheel to TestPyPI first:
-
-```bash
-uvx twine upload --repository testpypi dist/siwah-1.0.5-py3-none-any.whl
-```
-
-Use `TWINE_USERNAME=__token__` and a TestPyPI token in `TWINE_PASSWORD` from a
-secret manager. Never commit a token or put one in a command that is captured in
-logs.
-
-Verify in a clean environment with dependencies resolved from PyPI:
-
-```bash
-uv venv .tmp-testpypi --clear
-uv pip install --python .tmp-testpypi/Scripts/python.exe \
-  --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  "siwah==1.0.5"
-.tmp-testpypi/Scripts/siwah.exe --version
-.tmp-testpypi/Scripts/siwah.exe run "Reply with OK" --ui plain --model <provider>/<model-id>
-```
-
-Use the Unix paths on macOS/Linux. TestPyPI can lag or fail to mirror
-dependencies; retry once before treating it as a packaging failure.
-
-TestPyPI is a verification channel, not the supported user install.
-
-## Final PyPI publication
-
-After TestPyPI verification passes:
+## PyPI publication
 
 1. Confirm the version is still unclaimed and the wheel hash matches the tested
    artifact.
-2. Publish the same wheel to PyPI. Do not rebuild it.
-3. Verify `pip`/`uv` install in a clean environment.
+2. Publish the wheel to PyPI. Do not rebuild it:
+
+   ```bash
+   uvx twine upload dist/siwah-X.Y.Z-py3-none-any.whl
+   ```
+
+   Use `TWINE_USERNAME=__token__` and a PyPI token in `TWINE_PASSWORD` from a
+   secret manager. Never commit a token or put one in a command captured in logs.
+3. Verify `pip`/`uv` install in a clean environment. The first interactive
+   launch downloads the matching TUI binary and verifies its checksum.
 4. Confirm the GitHub Release and the source bootstrap point at the same version.
 
 Recommended authentication: **PyPI trusted publishing**. Configure the PyPI
@@ -199,15 +183,14 @@ environment such as `pypi`. Then use `pypa/gh-action-pypi-publish` with
 `id-token: write`; no long-lived PyPI token is stored.
 
 The repository includes `.github/workflows/publish.yml`, a manual
-`workflow_dispatch` job with `testpypi` and `pypi` targets. Configure matching
-GitHub environments and a trusted publisher for each index before using it. A
-maintainer may also upload explicitly with `twine` and a short-lived API token
-from a secret manager. In either case:
+`workflow_dispatch` job for PyPI. Configure a matching GitHub `pypi`
+environment and a trusted publisher before using it. A maintainer may also
+upload explicitly with `twine` and a short-lived API token from a secret
+manager. In either case:
 
 - never commit a PyPI token;
 - never reuse a version that is already published;
-- never replace an artifact after publication;
-- keep the TestPyPI and PyPI wheels byte-identical when possible.
+- never replace an artifact after publication.
 
 ## Post-release
 
@@ -232,6 +215,5 @@ from a secret manager. In either case:
       that version's section.
 - [ ] Tag `vX.Y.Z` is created and pushed.
 - [ ] Artifacts and checksums are attached to the GitHub Release.
-- [ ] TestPyPI wheel is uploaded and verified.
 - [ ] PyPI wheel is published and verified.
 - [ ] Update feed and install paths are checked.

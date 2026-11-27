@@ -81,6 +81,13 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
       .filter(Boolean)
       .join(" · ")
   }
+  const backgroundProgress = () => {
+    const job = props.tool.backgroundJob
+    if (!job) return ""
+    const lines = `${job.lines} output ${job.lines === 1 ? "line" : "lines"}`
+    const exit = job.exitCode === null ? "" : ` · exit ${job.exitCode}`
+    return `Background job ${job.status} · ${lines}${exit}`
+  }
   const codeFiletype = () => (isCode() ? fileType(label()) : null)
   const syntaxSegments = (line: string) => highlightLine(line || " ", codeFiletype() ?? "text")
   const syntaxColor = (kind: SyntaxKind) => {
@@ -142,6 +149,26 @@ export function ToolCard(props: { tool: ToolView; diff?: DiffBlock }) {
           </text>
         </Show>
       </box>
+      <For each={props.tool.children ?? []}>
+        {(child) => (
+          <text
+            fg={child.status === "error" ? theme.error : theme.muted}
+            paddingLeft={1}
+            wrapMode="none"
+          >
+            {clipCells(`${child.name} · ${child.activity}`.replace(/[\r\n\t]/g, " "), bodyWidth())}
+          </text>
+        )}
+      </For>
+      <Show when={backgroundProgress()}>
+        <text
+          fg={props.tool.backgroundJob?.status === "failed" ? theme.error : theme.muted}
+          paddingLeft={1}
+          wrapMode="none"
+        >
+          {clipCells(backgroundProgress(), bodyWidth())}
+        </text>
+      </Show>
       <Show when={props.diff}>
         <DiffView
           patch={props.diff?.patch ?? ""}
