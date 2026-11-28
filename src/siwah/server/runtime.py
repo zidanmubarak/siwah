@@ -26,8 +26,10 @@ from ..core.context import (
     estimate_tokens,
     fallback_summary,
 )
-from ..core.loop import AgentLoop
+from ..core.cron import CronScheduler
+from ..core.loop import AgentLoop, RunResult
 from ..core.questions import Question
+from ..core.review import BackgroundReview, review_prompt
 from ..core.storage import Session, Store
 from ..core.timing import RunTiming, active_timing
 from ..core.types import Message, MessageAttachment, ModelInfo, Usage
@@ -113,6 +115,7 @@ class DaemonRuntime:
             config.evolution,
             enabled=bool(config.evolution.auto and (config.roles.reflector or config.roles.main)),
         )
+        self.cron = CronScheduler(config, self.store, self.router)
         self.started_at = datetime.now(UTC).isoformat()
         self._buses: dict[str, EventBus] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
@@ -607,8 +610,9 @@ class DaemonRuntime:
                 return bool(self._steering.get(run_id))
 
         timing_token = active_timing.set(timing)
+        run_result: RunResult | None = None
         try:
-            await self.loop.run(
+            run_result = await self.loop.run(
                 session,
                 content,
                 emit=observed_emit,
@@ -658,6 +662,51 @@ class DaemonRuntime:
                 )
                 if not other_active:
                     self.evolution_trigger.after_session(self.store, session.id)
+            if (
+                not cancelled
+                and not continuation
+                and run_result is not None
+                and run_result.error is None
+                and not run_result.aborted
+                and self.config.agent.background_review
+                and run_result.steps >= max(1, self.config.agent.background_review_min_steps)
+            ):
+                self._maybe_background_review(session, run_result, resolve_permission, emit)
+
+    def _maybe_background_review(
+        self,
+        session: Session,
+        result: RunResult,
+        permission_resolver,
+        emit,
+    ) -> None:
+        if self._closing:
+            return
+        calls = self.store.get_tool_calls(session.id)
+        if any(call.get("name") in {"lesson_write", "skill_manage"} for call in calls[-20:]):
+            return
+        review = BackgroundReview(
+            config=self.config,
+            store=self.store,
+            router=self.router,
+            tools=self.loop.tools.tools(),
+            parent_session=session,
+            emit=emit,
+            permission_resolver=permission_resolver,
+            track_background=self._track_background_task,
+        )
+        prompt = review_prompt(self.store, session, steps=result.steps)
+
+        async def run() -> None:
+            try:
+                await review.start(prompt)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return None
+
+        task = asyncio.create_task(run())
+        self._track_background_task(task)
 
     async def abort(self, session_id: str) -> bool:
         with self._operation_lock:
@@ -1438,6 +1487,11 @@ class DaemonRuntime:
             "exit_code": (result.data or {}).get("exit_code") if result.ok else None,
         }
 
+    async def start_cron(self) -> None:
+        """Start the opt-in local scheduler after the event loop is running."""
+
+        await self.cron.start()
+
     async def close(self) -> None:
         with self._operation_lock:
             self._closing = True
@@ -1454,6 +1508,7 @@ class DaemonRuntime:
         for task in tasks:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
+        await self.cron.stop()
         await self.loop.close_jobs()
         await self.registry.aclose()
         self.store.close()

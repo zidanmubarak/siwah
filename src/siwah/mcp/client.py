@@ -62,6 +62,28 @@ class McpServerInfo:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class McpResourceInfo:
+    uri: str
+    name: str = ""
+    description: str = ""
+    mime_type: str | None = None
+
+
+@dataclass(frozen=True)
+class McpPromptArgument:
+    name: str
+    description: str = ""
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class McpPromptInfo:
+    name: str
+    description: str = ""
+    arguments: tuple[McpPromptArgument, ...] = ()
+
+
 def mcp_config_path(root: Path | str | None = None) -> Path:
     base = Path(root) if root is not None else harness_dir()
     return base / MCP_CONFIG_NAME
@@ -328,6 +350,23 @@ class StdioMcpClient:
         await self._ensure()
         return await _list_tools_paginated(self.request)
 
+    async def list_resources(self) -> list[McpResourceInfo]:
+        await self._ensure()
+        return await _list_resources_paginated(self.request)
+
+    async def read_resource(self, uri: str) -> list[dict[str, Any]]:
+        await self._ensure()
+        result = await self.request("resources/read", {"uri": uri})
+        return _resource_contents(result)
+
+    async def list_prompts(self) -> list[McpPromptInfo]:
+        await self._ensure()
+        return await _list_prompts_paginated(self.request)
+
+    async def get_prompt(self, name: str, arguments: dict[str, str]) -> dict[str, Any]:
+        await self._ensure()
+        return await self.request("prompts/get", {"name": name, "arguments": arguments})
+
     async def call_tool_result(self, name: str, arguments: dict[str, Any]) -> McpCallResult:
         await self._ensure()
         result = await self.request("tools/call", {"name": name, "arguments": arguments})
@@ -492,6 +531,27 @@ class HttpMcpClient:
             await self.initialize()
         return await _list_tools_paginated(self.request)
 
+    async def list_resources(self) -> list[McpResourceInfo]:
+        if not self._initialized:
+            await self.initialize()
+        return await _list_resources_paginated(self.request)
+
+    async def read_resource(self, uri: str) -> list[dict[str, Any]]:
+        if not self._initialized:
+            await self.initialize()
+        result = await self.request("resources/read", {"uri": uri})
+        return _resource_contents(result)
+
+    async def list_prompts(self) -> list[McpPromptInfo]:
+        if not self._initialized:
+            await self.initialize()
+        return await _list_prompts_paginated(self.request)
+
+    async def get_prompt(self, name: str, arguments: dict[str, str]) -> dict[str, Any]:
+        if not self._initialized:
+            await self.initialize()
+        return await self.request("prompts/get", {"name": name, "arguments": arguments})
+
     async def call_tool_result(self, name: str, arguments: dict[str, Any]) -> McpCallResult:
         if not self._initialized:
             await self.initialize()
@@ -542,6 +602,91 @@ def _tools_from_result(result: dict[str, Any]) -> list[McpToolInfo]:
         for item in tools
         if isinstance(item, dict) and item.get("name")
     ]
+
+
+async def _list_resources_paginated(request: Any) -> list[McpResourceInfo]:
+    resources: list[McpResourceInfo] = []
+    cursor: str | None = None
+    for _ in range(_MAX_PAGES):
+        params: dict[str, Any] = {} if cursor is None else {"cursor": cursor}
+        result = await request("resources/list", params)
+        resources.extend(_resources_from_result(result))
+        next_cursor = result.get("nextCursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            break
+        cursor = next_cursor
+    else:
+        raise McpError("MCP resources/list exceeded the pagination limit")
+    return resources
+
+
+def _resources_from_result(result: dict[str, Any]) -> list[McpResourceInfo]:
+    resources = result.get("resources", [])
+    if not isinstance(resources, list):
+        return []
+    return [
+        McpResourceInfo(
+            uri=str(item.get("uri", "")),
+            name=str(item.get("name", "") or ""),
+            description=str(item.get("description", "") or ""),
+            mime_type=str(item["mimeType"]) if item.get("mimeType") else None,
+        )
+        for item in resources
+        if isinstance(item, dict) and item.get("uri")
+    ]
+
+
+async def _list_prompts_paginated(request: Any) -> list[McpPromptInfo]:
+    prompts: list[McpPromptInfo] = []
+    cursor: str | None = None
+    for _ in range(_MAX_PAGES):
+        params: dict[str, Any] = {} if cursor is None else {"cursor": cursor}
+        result = await request("prompts/list", params)
+        prompts.extend(_prompts_from_result(result))
+        next_cursor = result.get("nextCursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            break
+        cursor = next_cursor
+    else:
+        raise McpError("MCP prompts/list exceeded the pagination limit")
+    return prompts
+
+
+def _prompts_from_result(result: dict[str, Any]) -> list[McpPromptInfo]:
+    prompts = result.get("prompts", [])
+    if not isinstance(prompts, list):
+        return []
+    values: list[McpPromptInfo] = []
+    for item in prompts:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        raw_arguments = item.get("arguments", [])
+        arguments: list[McpPromptArgument] = []
+        if isinstance(raw_arguments, list):
+            for argument in raw_arguments:
+                if isinstance(argument, dict) and argument.get("name"):
+                    arguments.append(
+                        McpPromptArgument(
+                            name=str(argument["name"]),
+                            description=str(argument.get("description", "") or ""),
+                            required=bool(argument.get("required", False)),
+                        )
+                    )
+        values.append(
+            McpPromptInfo(
+                name=str(item["name"]),
+                description=str(item.get("description", "") or ""),
+                arguments=tuple(arguments),
+            )
+        )
+    return values
+
+
+def _resource_contents(result: dict[str, Any]) -> list[dict[str, Any]]:
+    contents = result.get("contents", [])
+    if not isinstance(contents, list):
+        return []
+    return [item for item in contents if isinstance(item, dict)]
 
 
 def _call_result(result: dict[str, Any]) -> McpCallResult:
@@ -617,6 +762,8 @@ class McpManager:
         self.include_plugins = include_plugins
         self._clients: dict[str, StdioMcpClient | HttpMcpClient] = {}
         self._tools: dict[str, list[McpToolInfo]] = {}
+        self._resources: dict[str, list[McpResourceInfo]] = {}
+        self._prompts: dict[str, list[McpPromptInfo]] = {}
         self.last_errors: dict[str, str] = {}
 
     @classmethod
@@ -720,6 +867,8 @@ class McpManager:
         if client is not None:
             await client.close()
         self._tools.pop(name, None)
+        self._resources.pop(name, None)
+        self._prompts.pop(name, None)
         self.last_errors.pop(name, None)
         statuses = await self.status(refresh=True)
         for item in statuses:
@@ -786,6 +935,58 @@ class McpManager:
         tools, _errors = await self.list_tools_report(server)
         return tools
 
+    async def list_resources_report(
+        self, server: str | None = None, *, refresh: bool = False
+    ) -> tuple[dict[str, list[McpResourceInfo]], dict[str, str]]:
+        names = [server] if server is not None else self.server_names()
+        resources: dict[str, list[McpResourceInfo]] = {}
+        errors: dict[str, str] = {}
+        for name in names:
+            try:
+                if refresh or name not in self._resources:
+                    self._resources[name] = await self._client(name).list_resources()
+                resources[name] = self._resources[name]
+            except Exception as exc:
+                errors[name] = str(exc)
+        self.last_errors = errors
+        return resources, errors
+
+    async def list_resources(
+        self, server: str | None = None, *, refresh: bool = False
+    ) -> dict[str, list[McpResourceInfo]]:
+        resources, _errors = await self.list_resources_report(server, refresh=refresh)
+        return resources
+
+    async def read_resource(self, server: str, uri: str) -> list[dict[str, Any]]:
+        return await self._client(server).read_resource(uri)
+
+    async def list_prompts_report(
+        self, server: str | None = None, *, refresh: bool = False
+    ) -> tuple[dict[str, list[McpPromptInfo]], dict[str, str]]:
+        names = [server] if server is not None else self.server_names()
+        prompts: dict[str, list[McpPromptInfo]] = {}
+        errors: dict[str, str] = {}
+        for name in names:
+            try:
+                if refresh or name not in self._prompts:
+                    self._prompts[name] = await self._client(name).list_prompts()
+                prompts[name] = self._prompts[name]
+            except Exception as exc:
+                errors[name] = str(exc)
+        self.last_errors = errors
+        return prompts, errors
+
+    async def list_prompts(
+        self, server: str | None = None, *, refresh: bool = False
+    ) -> dict[str, list[McpPromptInfo]]:
+        prompts, _errors = await self.list_prompts_report(server, refresh=refresh)
+        return prompts
+
+    async def get_prompt(
+        self, server: str, name: str, arguments: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        return await self._client(server).get_prompt(name, arguments or {})
+
     async def schema(self, server: str, tool: str) -> dict[str, Any]:
         tools, errors = await self.list_tools_report(server)
         for item in tools.get(server, []):
@@ -806,6 +1007,8 @@ class McpManager:
             await client.close()
         self._clients.clear()
         self._tools.clear()
+        self._resources.clear()
+        self._prompts.clear()
 
     async def reload(self) -> None:
         """Reload ``mcp.json`` after the agent adds or removes a server."""

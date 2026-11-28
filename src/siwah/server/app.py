@@ -132,6 +132,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if runtime is not None:
+            await runtime.start_cron()
         yield
         if runtime is not None:
             runtime.registry.chatgpt_auth.close()

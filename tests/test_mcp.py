@@ -14,6 +14,9 @@ from siwah.mcp.client import (
     McpCallResult,
     McpError,
     McpManager,
+    McpPromptArgument,
+    McpPromptInfo,
+    McpResourceInfo,
     McpToolInfo,
     StdioMcpClient,
     load_mcp_config,
@@ -23,7 +26,7 @@ from siwah.mcp.client import (
 )
 from siwah.permissions.policy import PermissionPolicy
 from siwah.tools.base import ToolContext
-from siwah.tools.mcp import McpTool
+from siwah.tools.mcp import McpPromptsTool, McpResourcesTool, McpTool
 
 
 def _server_script(tmp_path: Path) -> Path:
@@ -49,7 +52,7 @@ for line in sys.stdin:
     if method == "initialize":
         result = {
             "protocolVersion": "2025-06-18",
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
             "serverInfo": {"name": "fake", "version": "1"},
         }
     elif method == "tools/list":
@@ -98,6 +101,54 @@ for line in sys.stdin:
             }
         else:
             result = {"content": [{"type": "text", "text": "unknown"}]}
+    elif method == "resources/list":
+        if params.get("cursor") is None:
+            result = {
+                "resources": [
+                    {
+                        "uri": "file:///guide.md",
+                        "name": "guide",
+                        "description": "Project guide",
+                        "mimeType": "text/markdown",
+                    }
+                ],
+                "nextCursor": "resource-page-2",
+            }
+        else:
+            result = {"resources": [{"uri": "file:///notes.txt", "name": "notes"}]}
+    elif method == "resources/read":
+        result = {
+            "contents": [
+                {
+                    "uri": params.get("uri"),
+                    "mimeType": "text/markdown",
+                    "text": "# Guide\\nread me",
+                }
+            ]
+        }
+    elif method == "prompts/list":
+        result = {
+            "prompts": [
+                {
+                    "name": "review",
+                    "description": "Review code",
+                    "arguments": [
+                        {"name": "code", "description": "Code to review", "required": True}
+                    ],
+                }
+            ]
+        }
+    elif method == "prompts/get":
+        values = params.get("arguments") or {}
+        result = {
+            "description": "Review code",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": {"type": "text", "text": "Review " + str(values.get("code"))},
+                }
+            ],
+        }
     else:
         result = {}
     print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}), flush=True)
@@ -152,6 +203,45 @@ async def test_stdio_mcp_lazy_tools_pagination_and_env(tmp_path: Path):
         await manager.close()
 
 
+@pytest.mark.asyncio
+async def test_stdio_mcp_resources_and_prompts(tmp_path: Path):
+    harness = tmp_path / "harness"
+    harness.mkdir()
+    script = _server_script(tmp_path)
+    (harness / "mcp.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "fake": {
+                        "transport": "stdio",
+                        "command": [sys.executable, str(script)],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = McpManager.load(harness)
+    try:
+        resources = await manager.list_resources("fake")
+        assert [item.uri for item in resources["fake"]] == [
+            "file:///guide.md",
+            "file:///notes.txt",
+        ]
+        assert resources["fake"][0].mime_type == "text/markdown"
+        contents = await manager.read_resource("fake", "file:///guide.md")
+        assert len(contents) == 1
+        assert contents[0]["text"] == "# Guide\nread me"
+        prompts = await manager.list_prompts("fake")
+        assert prompts["fake"][0].name == "review"
+        assert prompts["fake"][0].arguments[0].required is True
+        prompt = await manager.get_prompt("fake", "review", {"code": "diff"})
+        assert prompt["messages"][0]["content"]["text"] == "Review diff"
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
 async def test_stdio_response_deadline_includes_unrelated_messages():
     class NoisyOutput:
         messages = 0
@@ -386,6 +476,73 @@ async def test_mcp_tool_list_and_call(tmp_path: Path):
         context, action="call", server="fake", tool="echo", arguments={"text": "hi"}
     )
     assert called.output == "echo:hi"
+
+
+@pytest.mark.asyncio
+async def test_mcp_resource_and_prompt_tools(tmp_path: Path):
+    class FakeManager:
+        async def list_resources_report(self, server=None, refresh=False):
+            return {
+                "fake": [
+                    McpResourceInfo(
+                        uri="file:///guide.md",
+                        name="guide",
+                        description="Project guide",
+                        mime_type="text/markdown",
+                    )
+                ]
+            }, {}
+
+        async def read_resource(self, server, uri):
+            return [{"uri": uri, "mimeType": "text/markdown", "text": "# Guide"}]
+
+        async def list_prompts_report(self, server=None, refresh=False):
+            return {
+                "fake": [
+                    McpPromptInfo(
+                        name="review",
+                        description="Review code",
+                        arguments=(McpPromptArgument(name="code", required=True),),
+                    )
+                ]
+            }, {}
+
+        async def get_prompt(self, server, name, arguments):
+            return {
+                "description": "Review code",
+                "messages": [{"role": "user", "content": {"type": "text", "text": "Review diff"}}],
+            }
+
+    yolo = ToolContext(
+        workspace=tmp_path,
+        policy=PermissionPolicy(tmp_path, PermissionsConfig(mode="yolo")),
+        session_id="ses",
+        agent_config=AgentConfig(),
+        mcp=FakeManager(),
+    )
+    listed = await McpResourcesTool().run(yolo, action="list")
+    assert listed.ok
+    assert "fake/file:///guide.md (guide) [text/markdown]" in listed.output
+    read = await McpResourcesTool().run(yolo, action="read", server="fake", uri="file:///guide.md")
+    assert read.ok and "# Guide" in read.output
+
+    prompts = await McpPromptsTool().run(yolo, action="list")
+    assert prompts.ok and "fake/review (code*)" in prompts.output
+    rendered = await McpPromptsTool().run(
+        yolo, action="get", server="fake", name="review", arguments={"code": "diff"}
+    )
+    assert rendered.ok and "[user]" in rendered.output and "Review diff" in rendered.output
+
+    ask = ToolContext(
+        workspace=tmp_path,
+        policy=PermissionPolicy(tmp_path, PermissionsConfig(mode="ask")),
+        session_id="ses",
+        agent_config=AgentConfig(),
+        mcp=FakeManager(),
+    )
+    denied = await McpResourcesTool().run(ask, action="read", server="fake", uri="file:///guide.md")
+    assert denied.ok is False
+    assert "Permission required" in denied.output
 
 
 def test_mcp_cli_add_list_test_show_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

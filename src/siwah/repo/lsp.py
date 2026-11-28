@@ -266,6 +266,135 @@ class LspSession:
                 break
         return results
 
+    async def _open(self, path: Path) -> str:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        uri = path.as_uri()
+        await self.notify(
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": self.spec.language_id,
+                    "version": 1,
+                    "text": text,
+                }
+            },
+        )
+        return uri
+
+    async def _close(self, uri: str) -> None:
+        await self.notify("textDocument/didClose", {"textDocument": {"uri": uri}})
+
+    async def definition(self, path: Path, *, line: int, character: int) -> list[dict[str, Any]]:
+        uri = await self._open(path)
+        try:
+            result = await self.request(
+                "textDocument/definition",
+                {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": max(0, line - 1), "character": max(0, character)},
+                },
+                timeout=30.0,
+            )
+        finally:
+            await self._close(uri)
+        if isinstance(result, dict):
+            return [result]
+        return (
+            [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        )
+
+    async def hover(self, path: Path, *, line: int, character: int) -> str:
+        uri = await self._open(path)
+        try:
+            result = await self.request(
+                "textDocument/hover",
+                {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": max(0, line - 1), "character": max(0, character)},
+                },
+                timeout=30.0,
+            )
+        finally:
+            await self._close(uri)
+        if not isinstance(result, dict):
+            return ""
+        contents = result.get("contents")
+        if isinstance(contents, str):
+            return contents
+        if isinstance(contents, dict):
+            return str(contents.get("value") or "")
+        if isinstance(contents, list):
+            parts: list[str] = []
+            for item in contents:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    parts.append(str(item.get("value") or ""))
+            return "\n".join(part for part in parts if part)
+        return ""
+
+    async def diagnostics(self, path: Path, *, timeout: float = 10.0) -> list[dict[str, Any]]:
+        uri = await self._open(path)
+        try:
+            # LSP 3.17 pull diagnostics. Pyright and many modern servers support
+            # this and return the final result without waiting for a publish.
+            try:
+                result = await self.request(
+                    "textDocument/diagnostic",
+                    {"textDocument": {"uri": uri}},
+                    timeout=timeout,
+                )
+                if isinstance(result, dict) and isinstance(result.get("items"), list):
+                    return [item for item in result["items"] if isinstance(item, dict)]
+            except (LspError, TimeoutError):
+                pass
+            found: list[dict[str, Any]] = []
+            deadline = asyncio.get_running_loop().time() + timeout
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    message = await asyncio.wait_for(self._read(), timeout=remaining)
+                except (TimeoutError, asyncio.IncompleteReadError):
+                    break
+                if message.get("method") == "textDocument/publishDiagnostics":
+                    params = message.get("params") or {}
+                    if params.get("uri") == uri:
+                        values = params.get("diagnostics")
+                        found = (
+                            [item for item in values if isinstance(item, dict)]
+                            if isinstance(values, list)
+                            else []
+                        )
+                        break
+                    continue
+                if "id" in message and "method" in message:
+                    self._write({"jsonrpc": "2.0", "id": message["id"], "result": None})
+                    await self._flush()
+            return found
+        finally:
+            await self._close(uri)
+
+    async def rename(
+        self, path: Path, *, line: int, character: int, new_name: str
+    ) -> dict[str, Any] | None:
+        uri = await self._open(path)
+        try:
+            result = await self.request(
+                "textDocument/rename",
+                {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": max(0, line - 1), "character": max(0, character)},
+                    "newName": new_name,
+                },
+                timeout=30.0,
+            )
+        finally:
+            await self._close(uri)
+        return result if isinstance(result, dict) else None
+
 
 def _kill_tree(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:

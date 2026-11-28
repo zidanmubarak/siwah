@@ -93,6 +93,8 @@ DEFAULT_TOOL_GUIDANCE = (
   result. Do not guess about runtime limits.
 - Before claiming completion, run verify or cite the verification commands you
   already ran. If verification is unavailable, say so explicitly.
+- Use lsp_diagnostics, lsp_definition, and lsp_hover when a language server is
+  available; preview lsp_rename before applying it.
 """
     + INTERACTION_GUIDE
     + """- Use memory_write for durable user preferences (target "user") or project facts
@@ -258,6 +260,8 @@ _PRE_STATUS_TOOL_GUIDANCE = (
   result. Do not guess about runtime limits.
 - Before claiming completion, run verify or cite the verification commands you
   already ran. If verification is unavailable, say so explicitly.
+- Use lsp_diagnostics, lsp_definition, and lsp_hover when a language server is
+  available; preview lsp_rename before applying it.
 """,
         "",
     )

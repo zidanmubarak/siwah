@@ -222,7 +222,7 @@ Then restart `siwah`. Current releases run this dependency install as part of
 - If resizing leaves artifacts, resize once more or restart the TUI; include the
   terminal and size in a report.
 
-macOS Terminal and iTerm2 are not verified for 1.1.0. See
+macOS Terminal and iTerm2 are not verified for 1.2.0. See
 [Terminal support](TERMINAL-SUPPORT.md).
 
 ### The TUI exits immediately
@@ -244,8 +244,11 @@ git stash push -m "before update"
 siwah update --apply
 ```
 
-If you do not want to manage a checkout, reinstall from a bundle or a new source
-bootstrap. A wheel-only install can see an update notice but cannot apply it.
+A uv tool install does not need a checkout: `siwah update --apply` runs
+`uv tool upgrade siwah` and refreshes the TUI binary. If uv reports a locked
+environment, close the TUI and daemon, then run `uv tool upgrade siwah` and
+`siwah install-tui`. A checkout with local changes must be committed or stashed
+before updating.
 
 ### The version did not change after an update
 

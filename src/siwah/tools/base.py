@@ -78,6 +78,7 @@ class ToolContext:
     hooks: Any = None
     mcp: Any = None
     sandbox: Any = None
+    router: Any = None
 
     async def authorize(self, request: PermissionRequest) -> tuple[bool, str | None]:
         decision = self.policy.check(request)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -18,6 +19,8 @@ from .skill_usage import archived_names
 
 MAX_DESCRIPTION = 500
 MAX_SKILL_BODY = 64_000
+MAX_SKILL_FILE = 64_000
+MAX_LINT_DESCRIPTION = 80
 SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
@@ -270,6 +273,109 @@ def delete_skill(name: str, workspace: Path | None = None) -> bool:
         return False
     shutil.rmtree(directory)
     return True
+
+
+def skill_file_path(name: str, relative: str, workspace: Path | None = None) -> Path:
+    """Resolve a support file inside one skill and reject traversal."""
+
+    clean = validate_name(name)
+    base = skill_path(clean, workspace).parent.resolve()
+    value = Path(relative)
+    if value.is_absolute() or any(part in {"..", ""} for part in value.parts):
+        raise ValueError("skill file path must stay inside the skill directory")
+    if value.as_posix() == "SKILL.md":
+        raise ValueError("edit SKILL.md through update or patch, not write_file")
+    target = (base / value).resolve()
+    if not target.is_relative_to(base):
+        raise ValueError("skill file path escapes the skill directory")
+    return target
+
+
+def list_skill_files(name: str, workspace: Path | None = None) -> list[str]:
+    base = skill_path(name, workspace).parent
+    if not base.is_dir():
+        return []
+    files: list[str] = []
+    for path in sorted(base.rglob("*")):
+        if not path.is_file() or path.name == "SKILL.md":
+            continue
+        files.append(path.relative_to(base).as_posix())
+    return files
+
+
+def write_skill_file(name: str, relative: str, content: str, workspace: Path | None = None) -> Path:
+    target = skill_file_path(name, relative, workspace)
+    if not content.strip():
+        raise ValueError("skill file content is empty")
+    if len(content) > MAX_SKILL_FILE:
+        raise ValueError(f"skill file exceeds {MAX_SKILL_FILE} characters")
+    marker = secret_marker(content)
+    if marker:
+        raise ValueError(f"refusing to store a {marker}")
+    _write_file(target, content)
+    return target
+
+
+def _write_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=".skill.", dir=str(path.parent))
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        with contextlib.suppress(OSError):
+            temp.chmod(0o600)
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def remove_skill_file(name: str, relative: str, workspace: Path | None = None) -> bool:
+    target = skill_file_path(name, relative, workspace)
+    if not target.is_file():
+        return False
+    target.unlink()
+    return True
+
+
+def lint_skill(name: str, workspace: Path | None = None) -> list[str]:
+    """Return authoring warnings for one skill; never mutates it."""
+
+    try:
+        skill = read_skill(name, workspace)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        return [str(exc)]
+    issues: list[str] = []
+    if len(skill.description) > MAX_LINT_DESCRIPTION:
+        issues.append(
+            f"description is {len(skill.description)} characters; keep it under "
+            f"{MAX_LINT_DESCRIPTION}"
+        )
+    if not skill.description.strip():
+        issues.append("description is empty")
+    lowered = skill.content.casefold()
+    if not any(
+        marker in lowered
+        for marker in ("when to use", "use this", "trigger", "gunakan saat", "kapan")
+    ):
+        issues.append("body has no explicit trigger or 'when to use' section")
+    if secret_marker(skill.content):
+        issues.append("body looks like it contains a credential")
+    for relative in list_skill_files(name, workspace):
+        path = skill_file_path(name, relative, workspace)
+        try:
+            if path.stat().st_size > MAX_SKILL_FILE:
+                issues.append(f"{relative} exceeds {MAX_SKILL_FILE} bytes")
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            issues.append(f"{relative} is unreadable")
+            continue
+        marker = secret_marker(text)
+        if marker:
+            issues.append(f"{relative} looks like it contains a {marker}")
+    if not any(relative.startswith("scripts/") for relative in list_skill_files(name, workspace)):
+        issues.append("no scripts/ helper; add one if the procedure runs deterministic commands")
+    return issues
 
 
 MAX_INDEX_CHARS = 8_000

@@ -100,7 +100,13 @@ script.
 - Logs, traces, and error details are designed not to include keys or full
   headers.
 - Memory and skill writes are size-limited and reject credential-like content.
-- Recall snippets are redacted.
+- Recall snippets are redacted. `recall summarize=true` redacts matched
+  evidence, titles, and the query before sending them to the configured
+  `[roles].fast` model.
+- Cron jobs are read-only unless created with `--allow bash`, `--allow write`,
+  or `--allow network`. Explicit deny rules still apply, each job has a
+  workspace, timeout, per-run allowance, and the scheduler enforces a daily
+  allowance cap.
 - The agent is instructed not to write secrets into the repository.
 
 These are best-effort pattern and entropy checks. A secret in an unusual format
@@ -191,10 +197,14 @@ The gate is heuristic. It is not a formal proof that a candidate is safe.
 
 ### Updates
 
-- The updater uses the normal git credential helper. It never embeds a GitHub
-  token.
+- The checkout updater uses the normal git credential helper. It never embeds a
+  GitHub token.
 - A dirty checkout is refused.
-- A wheel-only install can see a notification but cannot apply an update.
+- A uv tool install checks the PyPI JSON API and applies updates with
+  `uv tool upgrade siwah`; it does not download or execute arbitrary release
+  assets outside the verified TUI download flow.
+- `siwah uninstall --purge` deletes credentials under `~/.siwah` permanently.
+  Use `--keep-data` or the interactive confirmation to avoid that.
 
 ## What siwah does not protect against
 

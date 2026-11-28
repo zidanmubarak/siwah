@@ -37,11 +37,24 @@ from ..config import (
     load_config,
     update_budget_config,
 )
+from ..core.cron import (
+    CronBusy,
+    CronError,
+    CronJob,
+    CronRun,
+    CronStore,
+    apply_run,
+    execute_job,
+    make_job_id,
+    next_run,
+    parse_schedule,
+    run_lock,
+)
 from ..core.storage import Store
 from ..core.types import Message, ModelInfo, ProviderEvent
 from ..harness.bootstrap import ensure_harness
 from ..harness.lessons import format_lessons, read_lessons, search_lessons
-from ..harness.memory import read_memory
+from ..harness.memory import read_memory, redact_secrets
 from ..harness.memory_review import dedupe_memory, review_memory
 from ..harness.profile import read_profile, update_profile
 from ..harness.skill_usage import curate, record_event, set_pinned, state_for
@@ -103,6 +116,12 @@ from ..providers.profiles import (
 )
 from ..providers.registry import ProviderRegistry, RoleRouter
 from ..tui_install import TuiInstallError, ensure_tui_binary
+from ..uninstall import (
+    UninstallError,
+    build_uninstall_plan,
+    execute_plan,
+    plan_lines,
+)
 from ..update import DEFAULT_REPO, apply_update, check_for_update
 from ..version import __version__
 from .plain_ui import JsonRenderer, PlainRenderer
@@ -124,6 +143,7 @@ memory_app = typer.Typer(help="Inspect layered memory.", no_args_is_help=True)
 kernel_app = typer.Typer(help="Inspect and verify the protected kernel.", no_args_is_help=True)
 mcp_app = typer.Typer(help="Manage MCP servers and tools.", no_args_is_help=True)
 plugin_app = typer.Typer(help="Manage declarative plugin bundles.", no_args_is_help=True)
+cron_app = typer.Typer(help="Schedule local agent jobs.", no_args_is_help=True)
 app.add_typer(auth_app, name="auth")
 app.add_typer(models_app, name="models")
 app.add_typer(skills_app, name="skills")
@@ -131,6 +151,7 @@ app.add_typer(memory_app, name="memory")
 app.add_typer(kernel_app, name="kernel")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(plugin_app, name="plugin")
+app.add_typer(cron_app, name="cron")
 console = Console()
 
 
@@ -330,6 +351,291 @@ def run(
         if not json_output:
             typer.echo(f"[siwah] {result.error}", err=True)
         raise typer.Exit(1)
+
+
+def _cron_time(value: str | None) -> str:
+    if not value:
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+def _cron_allow(values: list[str] | None) -> list[str]:
+    allowed: list[str] = []
+    for value in values or []:
+        for item in value.split(","):
+            normalized = item.strip().lower()
+            if not normalized:
+                continue
+            if normalized not in {"bash", "write", "network"}:
+                raise CronError(
+                    f"unknown permission kind {normalized!r}; use bash, write, or network"
+                )
+            if normalized not in allowed:
+                allowed.append(normalized)
+    return allowed
+
+
+@cron_app.command("add")
+def cron_add(
+    schedule: str = typer.Option(..., "--schedule", "-s", help="Five-field cron expression."),
+    cwd: Path = typer.Option(..., "--cwd", help="Explicit workspace for the job."),
+    prompt: str = typer.Option(..., "--prompt", "-p", help="Prompt sent on each run."),
+    job_id: str | None = typer.Option(None, "--id", help="Stable job id."),
+    model: str | None = typer.Option(None, "--model", help="provider/model-id override."),
+    max_steps: int | None = typer.Option(None, "--max-steps", help="Model-step limit."),
+    max_allowance: float | None = typer.Option(
+        None, "--max-allowance", help="Per-run allowance cap."
+    ),
+    timeout_s: float | None = typer.Option(None, "--timeout-s", help="Wall-clock timeout."),
+    allow: list[str] | None = typer.Option(
+        None,
+        "--allow",
+        help="Grant bash, write, or network; repeatable. Read tools are always allowed.",
+    ),
+    disabled: bool = typer.Option(False, "--disabled", help="Store the job without scheduling it."),
+) -> None:
+    """Add a local scheduled job (read-only unless --allow grants more)."""
+
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    workspace = cwd.expanduser().resolve()
+    if not workspace.is_dir():
+        typer.echo(f"Workspace does not exist: {workspace}", err=True)
+        raise typer.Exit(2)
+    if model is None and config.roles.main is None:
+        typer.echo(
+            "No model configured. Pass --model provider/model-id or set [roles].main "
+            f"in {config_path()}.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    try:
+        schedule_value = parse_schedule(schedule)
+        kinds = _cron_allow(allow)
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    upcoming = next_run(schedule_value, datetime.now().astimezone())
+    if upcoming is None:
+        typer.echo("Schedule has no next run within five years", err=True)
+        raise typer.Exit(2)
+    job = CronJob(
+        id=job_id or make_job_id(prompt),
+        schedule=schedule_value.expression,
+        cwd=str(workspace),
+        prompt=prompt,
+        model=model,
+        enabled=not disabled,
+        allow=kinds,
+        max_steps=max_steps if max_steps is not None else config.cron.max_steps,
+        max_allowance=(max_allowance if max_allowance is not None else config.cron.max_allowance),
+        timeout_s=timeout_s if timeout_s is not None else config.cron.timeout_s,
+        next_run_at=upcoming.isoformat(),
+    )
+    try:
+        CronStore().add(job)
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"Added cron job {job.id}")
+    typer.echo(f"schedule:   {job.schedule}")
+    typer.echo(f"workspace:  {job.cwd}")
+    typer.echo(f"next run:   {_cron_time(job.next_run_at)} (local)")
+    typer.echo(
+        "permissions: read-only" if not job.allow else f"permissions: read, {', '.join(job.allow)}"
+    )
+    typer.echo(f"limits:     {job.max_steps} steps, ${job.max_allowance:.4f}, {job.timeout_s:g}s")
+    if not config.cron.enabled:
+        typer.echo(
+            "Automatic runs are off. Set [cron] enabled = true in "
+            f"{config_path()} and restart the daemon (`siwah serve`)."
+        )
+
+
+@cron_app.command("list")
+def cron_list(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """List local scheduled jobs."""
+
+    try:
+        state = CronStore().load()
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if json_output:
+        typer.echo(json.dumps(state.model_dump(mode="json"), indent=2, ensure_ascii=False))
+        return
+    if not state.jobs:
+        typer.echo("No cron jobs. Add one with:")
+        typer.echo(
+            '  siwah cron add --schedule "0 9 * * *" --cwd <repo> --prompt "..." --allow bash'
+        )
+        return
+    table = Table(title="siwah cron jobs")
+    table.add_column("id")
+    table.add_column("schedule")
+    table.add_column("next")
+    table.add_column("state")
+    table.add_column("last")
+    table.add_column("workspace")
+    table.add_column("prompt")
+    for job in sorted(state.jobs, key=lambda item: item.next_run_at or ""):
+        table.add_row(
+            job.id,
+            job.schedule,
+            _cron_time(job.next_run_at),
+            "enabled" if job.enabled else "disabled",
+            job.last_status or "-",
+            job.cwd,
+            redact_secrets(job.prompt)[:40].replace("\n", " "),
+        )
+    console.print(table)
+
+
+@cron_app.command("run")
+def cron_run(
+    job_id: str = typer.Argument(..., help="Job id to run now."),
+    json_output: bool = typer.Option(False, "--json", help="Emit the run record as JSON."),
+) -> None:
+    """Run one job immediately. This does not wait for its schedule."""
+
+    cron_store = CronStore()
+    try:
+        job = cron_store.get(job_id)
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if job is None:
+        typer.echo(f"Unknown cron job: {job_id}", err=True)
+        raise typer.Exit(2)
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    ensure_home()
+    store = Store()
+    registry = ProviderRegistry(config, AuthStore())
+    router = RoleRouter(config, registry)
+    renderer = None if json_output else PlainRenderer()
+
+    async def execute() -> CronRun:
+        try:
+            return await execute_job(
+                job,
+                config=config,
+                store=store,
+                router=router,
+                emit=renderer.emit if renderer is not None else None,
+            )
+        finally:
+            await registry.aclose()
+            store.close()
+
+    if not json_output and not job.enabled:
+        typer.echo("note: job is disabled; running manually.")
+    try:
+        with run_lock(timeout_s=job.timeout_s + 120.0, wait_s=2.0):
+            record = asyncio.run(execute())
+
+            def mutate(item: CronJob) -> None:
+                upcoming = next_run(parse_schedule(item.schedule), datetime.now().astimezone())
+                apply_run(
+                    item,
+                    record,
+                    next_run_at=upcoming.isoformat() if upcoming is not None else None,
+                )
+
+            with contextlib.suppress(CronError):
+                cron_store.update_job(job.id, mutate, allowance=record.allowance)
+    except CronBusy as exc:
+        typer.echo(f"Cron is busy: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    except KeyboardInterrupt:
+        typer.echo("Aborted.", err=True)
+        raise typer.Exit(130) from None
+    except Exception as exc:
+        typer.echo(f"cron run failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    if json_output:
+        typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+    else:
+        typer.echo(
+            f"cron {job.id}: {record.status} in {record.steps} step(s), "
+            f"allowance ${record.allowance:.6f}"
+        )
+        if record.session_id:
+            typer.echo(f"session: {record.session_id}")
+        if record.error:
+            typer.echo(f"error: {record.error}", err=True)
+    if record.status != "ok":
+        raise typer.Exit(1)
+
+
+@cron_app.command("remove")
+def cron_remove(job_id: str = typer.Argument(..., help="Job id to remove.")) -> None:
+    """Remove one scheduled job."""
+
+    try:
+        removed = CronStore().remove(job_id)
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if not removed:
+        typer.echo(f"Unknown cron job: {job_id}", err=True)
+        raise typer.Exit(2)
+    typer.echo(f"Removed cron job {job_id}")
+
+
+@cron_app.command("enable")
+def cron_enable(job_id: str = typer.Argument(..., help="Job id to enable.")) -> None:
+    """Enable one job and schedule its next run."""
+
+    cron_store = CronStore()
+
+    def mutate(job: CronJob) -> None:
+        job.enabled = True
+        upcoming = next_run(parse_schedule(job.schedule), datetime.now().astimezone())
+        if upcoming is not None:
+            job.next_run_at = upcoming.isoformat()
+
+    try:
+        job = cron_store.update_job(job_id, mutate)
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if job is None:
+        typer.echo(f"Unknown cron job: {job_id}", err=True)
+        raise typer.Exit(2)
+    typer.echo(f"Enabled cron job {job_id}; next run {_cron_time(job.next_run_at)} (local)")
+
+
+@cron_app.command("disable")
+def cron_disable(job_id: str = typer.Argument(..., help="Job id to disable.")) -> None:
+    """Disable one job without removing it."""
+
+    try:
+        job = CronStore().set_enabled(job_id, False)
+    except CronError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if job is None:
+        typer.echo(f"Unknown cron job: {job_id}", err=True)
+        raise typer.Exit(2)
+    typer.echo(f"Disabled cron job {job_id}")
 
 
 def _port_available(host: str, port: int) -> bool:
@@ -2323,7 +2629,7 @@ def update(
         if status.can_apply:
             console.print("Run `siwah update --apply` or `/update` in the TUI.")
         else:
-            console.print(status.detail or "Reinstall from a git checkout to update.")
+            console.print(status.detail or "Run `siwah update --apply` to install the update.")
     else:
         console.print(f"siwah {status.current} is up to date (latest {status.latest}).")
 
@@ -2344,6 +2650,68 @@ def _canonical_openapi(value: object) -> object:
     if isinstance(value, list):
         return [_canonical_openapi(item) for item in value]
     return value
+
+
+@app.command("uninstall")
+def uninstall(
+    purge: bool = typer.Option(
+        False,
+        "--purge",
+        help="Delete ~/.siwah, including sessions, memory, credentials, and the source checkout.",
+    ),
+    keep_data: bool = typer.Option(False, "--keep-data", help="Keep ~/.siwah and private data."),
+    keep_tui: bool = typer.Option(False, "--keep-tui", help="Keep the downloaded TUI binary."),
+    keep_source: bool = typer.Option(
+        False, "--keep-source", help="With --purge, keep the ~/.siwah/src checkout."
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not prompt."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan without changing files."),
+) -> None:
+    """Remove the TUI and local data, then print the package-removal command."""
+    if purge and keep_data:
+        typer.echo("--purge and --keep-data cannot be combined", err=True)
+        raise typer.Exit(2)
+    data_confirmed = False
+    if not purge and not keep_data and not yes and not dry_run and sys.stdin.isatty():
+        purge = typer.confirm(
+            f"Also delete all siwah data in {siwah_home()}? "
+            "This removes sessions, memory, credentials, and the source checkout.",
+            default=False,
+        )
+        data_confirmed = True
+    if purge and not yes and not dry_run and not data_confirmed:
+        if not sys.stdin.isatty():
+            typer.echo("Pass --yes to confirm --purge in a non-interactive shell.", err=True)
+            raise typer.Exit(2)
+        typer.confirm(
+            f"Permanently delete {siwah_home()}? This cannot be undone.",
+            default=False,
+            abort=True,
+        )
+    try:
+        plan = build_uninstall_plan(
+            purge=purge,
+            keep_source=keep_source,
+            keep_tui=keep_tui,
+        )
+    except UninstallError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+    for line in plan_lines(plan):
+        typer.echo(line)
+    if dry_run:
+        return
+
+    result = execute_plan(plan)
+    for path in result.removed:
+        typer.echo(f"removed: {path}")
+    for error in result.errors:
+        typer.echo(f"error: {error}", err=True)
+    for note in result.notes:
+        typer.echo(f"note: {note}")
+    if result.errors:
+        raise typer.Exit(1)
 
 
 @app.command("openapi")

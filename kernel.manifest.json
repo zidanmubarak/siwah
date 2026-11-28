@@ -39,7 +39,7 @@
     "evals/traps/trap-destructive.json": "f59c7ffff9a93f2c0dad53c0051e7f44b6879e5e9403d0bad2aef845bee473e3",
     "evals/traps/trap-prompt-injection.json": "0eada68904c1a9bf5ce1a47c6d202832a4962b6080720c4e1e7ab263f8aee22f",
     "evals/traps/trap-reward-hacking.json": "b3c7be624d204ed739fd8e58a35743cd024b6af7ce68a29e0e01d5f02d50fd7e",
-    "pyproject.toml": "5d65d132ddb05e18ee47a31912c94fe52c4ec747095182adae10e400f3982971",
+    "pyproject.toml": "43c8f7fdc4f75a116dff17c225f3a79d5706a63c674fc55e4c7a1831e354b113",
     "src/siwah/__init__.py": "5ef54a2dec220a2db55c1b4aa08d2c3b5e027b558c3b095fc8544d1a385b26e3",
     "src/siwah/__main__.py": "53a9cc11660d03a718a03b1511ded58258046f78ce251bb9a63c8939a356f0e9",
     "src/siwah/adapt/__init__.py": "6d11f7f59501238e67e26b97efd59e614c8ba1bf1dd6f9caf8549c6ce4eb52e2",
@@ -60,10 +60,10 @@
     "src/siwah/adapt/worktree.py": "40edc6ede3816722382d01deda86543017655f0cdaf0423efbab51d5c57cae96",
     "src/siwah/auth.py": "51228d3998265b0aa5bb0e78bcd4a72d058f245ab070c862a68d68e5167ccfe2",
     "src/siwah/cli/__init__.py": "0badf25a27f3a40d0857b6160dab6901dae1a15f338eac402afd3131fd3d55d3",
-    "src/siwah/cli/main.py": "7862f6d7c8812a4edcae42e7a2cd09316767631ce175ae53704e2292e19d0e00",
+    "src/siwah/cli/main.py": "bbcd811e30049f7327cb75429fa6c9cbeafda849c8061d3d7ca8cad2f2b9b7cb",
     "src/siwah/cli/plain_ui.py": "65b5b04b38ff542c9611905a777760d80b15effc41dcfff5b3ba38d0f2567a3d",
     "src/siwah/cli/supervise.py": "7589cdde4722d0ed50be0a781d0df3f2a217fac47e5ae788c2160804cde13ddd",
-    "src/siwah/config.py": "5263ed8430e743bc3606e983e17ad5ca3bfb0434d1056d47dc290a1dccd68758",
+    "src/siwah/config.py": "31c824d1bed281355226ba062e5008f3b46b33039b158f75a279ba9d36ebbd09",
     "src/siwah/eval/__init__.py": "46c4d5e666c489f8642076df3f3ba8b1e70b4be78cfc1b5a4feb16f275e2a07f",
     "src/siwah/eval/mock.py": "fe64c2d815cec2ac98629597dce29395c6e3ccf692f3c07f038da47b8681502a",
     "src/siwah/eval/models.py": "a0ebd5908d8f0bbc1fded2c2db3ea538a6fb922443f48c25add55164a617a21b",
@@ -105,7 +105,7 @@
     "src/siwah/process.py": "f19bd94ea17f673f1f4e79319095ab3dd596d2607efd4940fb62ca9bdf913f4e",
     "src/siwah/providers/__init__.py": "99d81eff550df355f6456ba8e9dce7bf7b5a72cbb821bb6097268d3c403dc079",
     "src/siwah/providers/profiles.py": "ea00ab2a3116f803b26bc5dbf41b83048bbc5a82daaf98b3d09387e8a57aa070",
-    "src/siwah/version.py": "26eab4c034e63a9820b5d45b0d83049e7b7a977ae05f78c3053d9546e0c197e2",
+    "src/siwah/version.py": "d8fb3b1ab3951f08c071d6ada463c81da209b944ad3b1052e823991e65410254",
     "tests/kernel/__init__.py": "c30a38de51253cf2cf37909309ca7393ef007dc3fd43e213075df1d006e9a823",
     "tests/kernel/conftest.py": "1cbf348be7a7b4594b59439c96bf6cd88fcd31f26ed8d48d892da33703ff083f",
     "tests/kernel/test_audit.py": "29c89a70fb572c5f8a1ccda06bdb0dd8c6232bdf1691a8412c30d004c34438b0",
@@ -118,6 +118,6 @@
     "tests/kernel/test_snapshot.py": "327c3e472e0d69b7d909699fdafe052846232a87c1a58b5d1a9bc654d9fabaf9",
     "tests/kernel/test_supervisor.py": "72d7efbd67d9129d6e2a18244b303a736d1041e6595c2720f0aa5358b3faf791"
   },
-  "hash": "1986f1a45cae0c47b315b5aa01b0dc6f30fd857b4c0ae6941f58edbedc169939",
+  "hash": "4ac13f68563544a484a7657cf00c07a1d23aea9d8b7aa6d608d9e202d1f3e1d9",
   "version": 1
 }

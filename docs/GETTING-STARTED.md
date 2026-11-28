@@ -62,9 +62,10 @@ cd ../..
 siwah --version
 ```
 
-`--editable` matters. The launcher keeps the TUI source discoverable, and
-`/update` fast-forwards this checkout and rebuilds the binary. A wheel-only
-install can show an update notice but cannot apply it.
+`--editable` matters for the checkout update path. The launcher keeps the TUI
+source discoverable, and `/update` fast-forwards this checkout and rebuilds the
+binary. A wheel-only install instead checks PyPI and upgrades through
+`uv tool upgrade siwah`.
 
 ### PyPI
 
@@ -73,6 +74,11 @@ uv tool install siwah       # recommended
 # or: pip install siwah
 siwah --version
 ```
+
+A uv tool install puts the package in uv's tool environment and does not create
+`~/.siwah/src`. Configuration, sessions, memory, and the TUI binary still live
+under `~/.siwah`. On Windows the `siwah` shim is usually in
+`%USERPROFILE%\.local\bin`; on Unix it is usually `~/.local/bin`.
 
 The wheel includes the CLI, daemon, and evaluation engine. It does not include
 the platform-specific TUI binary. On the first interactive launch, `siwah`
@@ -240,6 +246,7 @@ harness under `~/.siwah/harness/` for reusable defaults.
 | Path | Purpose |
 |---|---|
 | `~/.siwah/harness/config.toml` | Providers, roles, permissions, budgets, and runtime settings |
+| `~/.siwah/src/` | Editable checkout from the bootstrap installer; absent for `uv tool install` |
 | `~/.siwah/auth.json` | Provider credentials (mode 600) |
 | `~/.siwah/harness/` | Editable prompts, guidance, skills, commands, subagents, profiles, hooks |
 | `~/.siwah/state.db` | Sessions, messages, tool calls, and traces |
@@ -272,10 +279,29 @@ siwah update --apply
 siwah update --refresh
 ```
 
-Applying an update requires the editable source checkout created by the
-bootstrap. A checkout with local changes is refused, so your edits are never
-overwritten. The new TUI binary is staged as `siwah-tui[.exe].next` and activated
-on the next launch, because Windows cannot replace a running executable.
+For an editable source checkout, `--apply` fast-forwards the checkout, reinstalls
+dependencies, and rebuilds the TUI. A checkout with local changes is refused, so
+your edits are never overwritten. For `uv tool install siwah`, it runs
+`uv tool upgrade siwah` and refreshes an already-installed TUI binary. On
+Windows the new TUI binary is staged as `siwah-tui[.exe].next` and activated on
+the next launch, because Windows cannot replace a running executable. If uv
+reports a locked environment, close the TUI and daemon, then run
+`uv tool upgrade siwah` and `siwah install-tui`.
+
+## Uninstall
+
+```bash
+siwah uninstall --keep-data   # remove the TUI, keep ~/.siwah
+siwah uninstall --purge       # remove the TUI and ~/.siwah, after confirmation
+siwah uninstall --dry-run     # print the plan
+```
+
+Close any running siwah TUI first. `--purge` deletes sessions, harness
+configuration, private memory, provider and MCP credentials, checkpoints, logs,
+caches, and the bootstrap checkout. The command prints the final
+`uv tool uninstall siwah` step; the standalone
+uninstaller runs outside siwah and removes that package too. It does not remove
+uv, Bun, or Python. See the [CLI](CLI.md#uninstall) reference.
 
 ## Evaluation and evolution need a source checkout
 

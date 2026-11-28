@@ -91,6 +91,11 @@ PLAN_TOOLS = {
     "lesson_search",
     "memory_review",
     "profile_read",
+    "lsp_diagnostics",
+    "lsp_definition",
+    "lsp_hover",
+    "mcp_resources",
+    "mcp_prompts",
 }
 
 
@@ -415,6 +420,7 @@ class AgentLoop:
         context.jobs = job_manager
         context.hooks = HookManager.load()
         context.mcp = self._mcp_manager
+        context.router = self.router
         if self.config.sandbox.enabled:
             context.sandbox = Sandbox(self.config.sandbox, cwd=workspace)
 

@@ -454,7 +454,8 @@ def default_tools() -> list[Tool]:
         SkillViewTool,
     )
     from .lessons import LessonSearchTool, LessonWriteTool
-    from .mcp import McpTool
+    from .lsp import LspDefinitionTool, LspDiagnosticsTool, LspHoverTool, LspRenameTool
+    from .mcp import McpPromptsTool, McpResourcesTool, McpTool
     from .output import ToolOutputTool
     from .repo import RefsTool, RepoMapTool, SymbolsTool
     from .status import SelfStatusTool
@@ -487,7 +488,13 @@ def default_tools() -> list[Tool]:
         RepoMapTool(),
         SymbolsTool(),
         RefsTool(),
+        LspDiagnosticsTool(),
+        LspDefinitionTool(),
+        LspHoverTool(),
+        LspRenameTool(),
         ToolOutputTool(),
         TaskTool(),
         McpTool(),
+        McpResourcesTool(),
+        McpPromptsTool(),
     ]

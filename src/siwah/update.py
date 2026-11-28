@@ -31,6 +31,8 @@ UPDATE_CACHE_NAME = "update-check.json"
 UPDATE_CACHE_TTL_SECONDS = 60 * 60
 GIT_TIMEOUT_SECONDS = 15
 BUILD_TIMEOUT_SECONDS = 300
+PYPI_JSON_URL = "https://pypi.org/pypi/siwah/json"
+PYPI_TIMEOUT_SECONDS = 10.0
 _VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+._]?([0-9A-Za-z.-]+))?$")
 _APPLY_LOCK = threading.Lock()
 
@@ -106,14 +108,15 @@ def source_root() -> Path | None:
 def check_for_update(*, refresh: bool = False, root: Path | None = None) -> UpdateStatus:
     """Check the remote branch/version, using a short-lived cache by default."""
 
+    resolved = root or source_root()
+    scope = _cache_scope(resolved)
     if not refresh:
-        cached = _read_cache()
+        cached = _read_cache(scope)
         if cached is not None:
             return cached
-    resolved = root or source_root()
     status = _check_checkout(resolved) if resolved is not None else _check_remote_only()
     if status.error is None:
-        _write_cache(status)
+        _write_cache(status, scope)
     return status
 
 
@@ -122,14 +125,13 @@ def apply_update(*, root: Path | None = None, rebuild_tui: bool = True) -> Updat
 
     resolved = root or source_root()
     if resolved is None:
-        return UpdateApplyResult(
-            ok=False,
-            from_version=__version__,
-            detail=(
-                "This siwah installation is not a source checkout. Reinstall from "
-                "the GitHub repository to enable /update."
-            ),
-        )
+        if root is not None:
+            return UpdateApplyResult(
+                ok=False,
+                from_version=__version__,
+                detail="No siwah source checkout was found at the requested path.",
+            )
+        return _apply_uv_tool()
     if not _APPLY_LOCK.acquire(blocking=False):
         return UpdateApplyResult(
             ok=False, from_version=__version__, detail="An update is already running."
@@ -265,24 +267,209 @@ def _check_checkout(root: Path) -> UpdateStatus:
 
 def _check_remote_only() -> UpdateStatus:
     repo = os.environ.get(UPDATE_REPO_ENV, DEFAULT_REPO)
-    latest, error = _latest_remote_tag(repo)
+    custom_repo = os.environ.get(UPDATE_REPO_ENV) is not None
+    latest, error = (None, None) if custom_repo else _latest_pypi_version()
+    source = "ls-remote" if custom_repo else "pypi"
+    if latest is None:
+        latest, git_error = _latest_remote_tag(repo)
+        source = "ls-remote"
+        if git_error:
+            error = f"{error}; {git_error}" if error else git_error
     current_key = version_key(__version__)
     latest_key = version_key(latest) if latest else None
+    available = bool(current_key and latest_key and latest_key > current_key)
+    managed = _uv_tool_managed() and running_from_uv_tool()
+    if latest is None:
+        detail = "No PyPI release or version tag was found."
+    elif available and managed:
+        detail = (
+            f"siwah {latest} is available. Run `siwah update --apply` or `/update` "
+            "to upgrade it with uv."
+        )
+    elif available:
+        detail = (
+            f"siwah {latest} is available. Run `uv tool upgrade siwah` and "
+            "`siwah install-tui`, or reinstall from a checkout."
+        )
+    else:
+        detail = f"siwah {__version__} is up to date (latest {latest})."
     return UpdateStatus(
         current=__version__,
         latest=latest,
-        available=bool(current_key and latest_key and latest_key > current_key),
+        available=available,
         repo=repo,
-        source="ls-remote",
+        source=source,
         checked_at=_now(),
         error=error,
-        can_apply=False,
-        detail=(
-            f"siwah {latest} is available. Reinstall from a git checkout to use /update."
-            if latest
-            else "No version tags were found on the remote."
-        ),
+        can_apply=bool(available and managed),
+        detail=detail,
     )
+
+
+def _latest_pypi_version() -> tuple[str | None, str | None]:
+    """Read the published version without requiring git or a checkout."""
+
+    try:
+        import httpx
+
+        response = httpx.get(
+            PYPI_JSON_URL,
+            timeout=PYPI_TIMEOUT_SECONDS,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        return None, f"PyPI check failed: {exc}"
+    info = payload.get("info") if isinstance(payload, dict) else None
+    version = info.get("version") if isinstance(info, dict) else None
+    if not isinstance(version, str) or version_key(version) is None:
+        return None, "PyPI did not return a valid version"
+    return version, None
+
+
+def _uv_tool_managed(uv: str | None = None) -> bool:
+    executable = uv or _find_uv()
+    if executable is None:
+        return False
+    try:
+        result = subprocess.run(
+            [executable, "tool", "list"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return any(line.split()[:1] == ["siwah"] for line in result.stdout.splitlines())
+
+
+def running_from_uv_tool(uv: str | None = None) -> bool:
+    """Return True when this interpreter is the ``uv tool install siwah`` env."""
+
+    executable = uv or _find_uv()
+    if executable is None:
+        return False
+    try:
+        result = subprocess.run(
+            [executable, "tool", "dir"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+    try:
+        tool_root = Path(result.stdout.strip()).expanduser().resolve()
+        return Path(sys.executable).resolve().is_relative_to(tool_root / "siwah")
+    except OSError:
+        return False
+
+
+def _apply_uv_tool() -> UpdateApplyResult:
+    """Upgrade a ``uv tool install siwah`` installation from PyPI."""
+
+    current = __version__
+    uv = _find_uv()
+    if uv is None:
+        return UpdateApplyResult(
+            ok=False,
+            from_version=current,
+            detail=(
+                "uv was not found. Install uv or reinstall siwah from a source "
+                "checkout to enable /update."
+            ),
+        )
+    if not _uv_tool_managed(uv) or not running_from_uv_tool(uv):
+        return UpdateApplyResult(
+            ok=False,
+            from_version=current,
+            detail=(
+                "This siwah process is not running from a uv tool install. "
+                "Close siwah and run `uv tool upgrade siwah`, or update the source "
+                "checkout."
+            ),
+        )
+    latest, error = _latest_pypi_version()
+    current_key = version_key(current)
+    latest_key = version_key(latest) if latest else None
+    if latest is None or current_key is None or latest_key is None:
+        return UpdateApplyResult(
+            ok=False,
+            from_version=current,
+            detail=f"Could not check PyPI for a newer release: {error}",
+        )
+    if latest_key <= current_key:
+        return UpdateApplyResult(
+            ok=True,
+            from_version=current,
+            to_version=current,
+            detail=f"siwah {current} is already up to date (latest {latest}).",
+            steps=["No newer PyPI release was found."],
+        )
+
+    ok, output = _run(
+        [uv, "tool", "upgrade", "siwah"],
+        cwd=Path.home(),
+        timeout=BUILD_TIMEOUT_SECONDS,
+    )
+    if not ok:
+        return UpdateApplyResult(
+            ok=False,
+            from_version=current,
+            detail=(
+                "uv could not upgrade siwah. Close the TUI and daemon, then run "
+                "`uv tool upgrade siwah` and `siwah install-tui`."
+            ),
+            steps=[output] if output else [],
+        )
+    if "nothing to upgrade" in output.lower():
+        return UpdateApplyResult(
+            ok=True,
+            from_version=current,
+            to_version=current,
+            detail="uv reports that no newer release is available.",
+            steps=[output],
+        )
+
+    steps = [f"Upgraded siwah from {current} to {latest} with uv."]
+    steps.extend(_update_tui_binary(latest))
+    _clear_cache()
+    return UpdateApplyResult(
+        ok=True,
+        from_version=current,
+        to_version=latest,
+        detail=f"Updated siwah from {current} to {latest}.",
+        restart_required=True,
+        steps=steps,
+    )
+
+
+def _update_tui_binary(version: str) -> list[str]:
+    name = "siwah-tui.exe" if os.name == "nt" else "siwah-tui"
+    target = siwah_home().resolve() / "bin" / name
+    if not target.is_file():
+        return ["No TUI binary is installed; skipped the TUI update."]
+    try:
+        from .tui_install import TuiInstallError, ensure_tui_binary
+
+        path = ensure_tui_binary(version=version, force=True, staged=os.name == "nt")
+    except TuiInstallError as exc:
+        return [
+            f"The Python package was updated, but the TUI update failed: {exc}. "
+            "Run `siwah install-tui` after restarting."
+        ]
+    if path.name.endswith(".next"):
+        return [f"Staged the TUI binary at {path}; it activates on the next launch."]
+    return [f"Updated the TUI binary at {path}."]
 
 
 def _remote_version(root: Path, remote: str, branch: str) -> tuple[str | None, str | None]:
@@ -394,13 +581,14 @@ def _reinstall_tool(root: Path) -> tuple[bool, list[str]]:
     return True, ["Reinstalled Python dependencies."]
 
 
-def _find_uv(root: Path) -> str | None:
+def _find_uv(root: Path | None = None) -> str | None:
     candidates = [
         shutil.which("uv"),
         str(Path.home() / ".local" / "bin" / ("uv.exe" if os.name == "nt" else "uv")),
         str(Path.home() / ".cargo" / "bin" / ("uv.exe" if os.name == "nt" else "uv")),
-        str(root / ".tools" / "uv" / ("uv.exe" if os.name == "nt" else "uv")),
     ]
+    if root is not None:
+        candidates.append(str(root / ".tools" / "uv" / ("uv.exe" if os.name == "nt" else "uv")))
     return next((path for path in candidates if path and Path(path).is_file()), None)
 
 
@@ -538,12 +726,21 @@ def _cache_path() -> Path:
     return siwah_home() / UPDATE_CACHE_NAME
 
 
-def _read_cache() -> UpdateStatus | None:
+def _cache_scope(root: Path | None) -> str:
+    if root is None:
+        return "remote"
+    try:
+        return f"checkout:{root.resolve()}"
+    except OSError:
+        return f"checkout:{root}"
+
+
+def _read_cache(scope: str) -> UpdateStatus | None:
     try:
         raw = json.loads(_cache_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or raw.get("scope") != scope:
         return None
     checked = raw.get("cached_at")
     if not isinstance(checked, (int, float)) or time.time() - checked > UPDATE_CACHE_TTL_SECONDS:
@@ -557,11 +754,14 @@ def _read_cache() -> UpdateStatus | None:
         return None
 
 
-def _write_cache(status: UpdateStatus) -> None:
+def _write_cache(status: UpdateStatus, scope: str) -> None:
     try:
         ensure_home()
         _cache_path().write_text(
-            json.dumps({"cached_at": time.time(), "status": asdict(status)}, indent=2),
+            json.dumps(
+                {"cached_at": time.time(), "scope": scope, "status": asdict(status)},
+                indent=2,
+            ),
             encoding="utf-8",
         )
     except OSError:

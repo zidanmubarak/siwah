@@ -60,6 +60,19 @@ with cue, evidence, and confidence. Lessons are private memory; skills belong to
 the editable harness. Do not use `/learn` for one-off task details or secrets.
 Use `/learned` to inspect the current skill/lesson graph and evolution state.
 
+Background review is opt-in because it spends extra allowance. In
+`~/.siwah/harness/config.toml`:
+
+```toml
+[agent]
+background_review = true
+background_review_min_steps = 10
+background_review_role = "fast"
+```
+
+After a successful run above the threshold, a child reviewer may write one
+lesson or skill. It never edits code or the parent context.
+
 ### Follow background work
 
 Start one delegated subagent with `task` and `background=true`. The parent
@@ -100,6 +113,7 @@ are enabled.
 | Command | Purpose |
 |---|---|
 | [`run`](#run) | Run one task non-interactively |
+| [`cron`](#cron) | Schedule local agent jobs |
 | [`serve`](#serve) | Start the daemon and local HTTP + SSE API |
 | [`acp`](#acp) | Serve the Agent Client Protocol over stdio |
 | [`evolve`](#evolve) | Run, pause, or inspect evolution |
@@ -111,6 +125,7 @@ are enabled.
 | [`clean`](#clean) | Remove stale local artifacts |
 | [`install-tui`](#install-tui) | Download the platform TUI binary |
 | [`update`](#update) | Check for or apply an update |
+| [`uninstall`](#uninstall) | Remove siwah and optionally its data |
 | [`openapi`](#openapi) | Print the OpenAPI schema |
 | [`auth`](#auth) | Manage provider credentials |
 | [`models`](#models) | List and probe models |
@@ -155,6 +170,65 @@ siwah run "..." --ultra 3
 `--ultra` creates parallel worktrees, applies the first passing attempt to the
 main worktree, and exits nonzero if no attempt passes. It refuses a dirty
 repository.
+
+## `cron`
+
+```text
+siwah cron add --schedule "0 9 * * *" --cwd PATH --prompt TEXT [OPTIONS]
+siwah cron list [--json]
+siwah cron run ID [--json]
+siwah cron enable ID
+siwah cron disable ID
+siwah cron remove ID
+```
+
+Cron jobs are local only. Siwah stores them in
+`~/.siwah/harness/cron.json` (mode 600) and never delivers results to Slack,
+email, or another platform. Schedules use five numeric fields
+(`minute hour day-of-month month day-of-week`) in the machine's local timezone.
+`*/n`, `a-b`, `a-b/n`, and comma lists are supported; names such as `MON` are
+not.
+
+```bash
+siwah cron add \
+  --schedule "0 9 * * 1-5" \
+  --cwd ~/repo \
+  --prompt "Triage failed tests and report the smallest fix" \
+  --allow bash \
+  --max-allowance 0.5 \
+  --timeout-s 900
+```
+
+| Option | Meaning |
+|---|---|
+| `--schedule`, `-s` | Five-field cron expression. Required. |
+| `--cwd` | Explicit workspace. Required; the job fails if it disappears. |
+| `--prompt`, `-p` | Prompt sent to a fresh session on each run. Required. |
+| `--id` | Stable id; default is a short slug plus a random suffix. |
+| `--model` | `provider/model-id` override; defaults to `[roles].main`. |
+| `--max-steps` | Model-step limit for one run. |
+| `--max-allowance` | Allowance cap for one run. |
+| `--timeout-s` | Wall-clock timeout for one run. |
+| `--allow` | Grant `bash`, `write`, or `network`; repeatable. |
+| `--disabled` | Store the job without enabling it. |
+
+Jobs are read-only by default. `--allow bash` permits shell commands,
+`--allow write` permits workspace edits, and `--allow network` permits web and
+MCP calls. An explicit deny rule in `[permissions]` still applies. Avoid
+putting credentials in the prompt or schedule file.
+
+Automatic execution is opt-in and requires both `[cron] enabled = true` in
+`config.toml` and a running daemon (`siwah serve`, or the daemon started by the
+TUI). `cron run` works manually even when automatic runs are disabled. The
+daemon starts one job at a time and also enforces
+`[cron].max_daily_allowance`. Missed runs are skipped by default
+(`catch_up = false`) instead of starting a cost spike after downtime.
+
+Each run creates a normal session titled `cron <id>: ...`, so use `siwah trace`
+or the TUI history to inspect it. Subagents are disabled during a scheduled run
+so the per-run allowance cap covers every model call. A run lock prevents the
+daemon and a manual `cron run` from overlapping; stale locks are cleaned up
+after the job timeout.
 
 ## `serve`
 
@@ -374,17 +448,61 @@ harness repository.
 siwah update [OPTIONS]
 ```
 
-Check the latest release tag for a newer version, or apply it. When no version
-tags exist, the upstream branch version is used as a fallback.
+Check the latest release for a newer version, or apply it. An editable source
+checkout reads git tags; a uv tool install reads the PyPI JSON API and falls
+back to `git ls-remote` for notifications. When no version tags exist, the
+upstream branch version is used as a fallback.
 
 | Option | Meaning |
 |---|---|
-| `--apply` | Fast-forward the editable checkout and rebuild the TUI. |
+| `--apply` | Fast-forward a checkout, or upgrade a uv tool install with uv. |
 | `--refresh` | Ignore the one-hour check cache. |
 | `--json` | Print JSON. |
 
-Applying requires a source checkout. A dirty checkout is refused. A wheel-only
-install can see the notification but cannot apply it.
+For a checkout, `--apply` fast-forwards the source, reinstalls dependencies, and
+rebuilds the TUI. A dirty checkout is refused. For `uv tool install siwah`,
+`--apply` runs `uv tool upgrade siwah` and refreshes the downloaded TUI binary;
+on Windows the TUI update is staged as `siwah-tui[.exe].next`. If uv reports a
+locked environment, close the TUI and daemon, then run `uv tool upgrade siwah`
+and `siwah install-tui`.
+
+## `uninstall`
+
+```text
+siwah uninstall [--purge | --keep-data] [--keep-tui] [--keep-source] [--yes] [--dry-run]
+```
+
+Close any running siwah TUI first. Remove the downloaded TUI and optionally all
+local data. The command stops the local daemon first. It does not delete the
+running package command itself;
+instead it prints the final `uv tool uninstall siwah` or `pipx uninstall siwah`
+command to run after the process exits. The standalone uninstaller below
+removes both the package and data in one step.
+
+| Option | Meaning |
+|---|---|
+| `--keep-data` | Keep `~/.siwah` (default when `--yes` is used without a data flag). |
+| `--purge` | Delete all of `~/.siwah`, including sessions, memory, credentials, and `~/.siwah/src`. |
+| `--keep-source` | With `--purge`, preserve the `~/.siwah/src` checkout. |
+| `--keep-tui` | Keep the TUI binary. |
+| `--yes`, `-y` | Do not prompt. `--purge` requires this in a non-interactive shell. |
+| `--dry-run` | Print the plan without changing files. |
+
+`--purge` asks for confirmation interactively. It never removes uv, Bun, Python,
+or shared PATH entries. If the package is not managed by uv or pipx, the command
+still cleans local data and prints how to remove the package with the original
+installer. A standalone uninstaller is available for broken installations:
+
+```text
+# Windows PowerShell
+irm https://raw.githubusercontent.com/zidanmubarak/siwah/main/scripts/install/uninstall.ps1 | iex
+
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/zidanmubarak/siwah/main/scripts/install/uninstall.sh | sh
+```
+
+Set `SIWAH_KEEP_DATA=1` to preserve `~/.siwah`. The standalone uninstaller
+removes data by default.
 
 ## `openapi`
 
@@ -441,6 +559,10 @@ siwah skills list
 siwah skills view NAME
 siwah skills curator [--dry-run] [--stale-after-days N] [--archive-after-days N]
 ```
+
+Skills can include `scripts/`, `references/`, and `templates/` support files,
+loaded on demand with `skill_view name=... file_path=...`. `skill_manage` also
+supports `write_file`, `remove_file`, `list_files`, and `lint`.
 
 `list` prints the name, state, and description of global and project skills.
 `view` prints the full Markdown body. `curator` archives stale agent-created
@@ -538,6 +660,11 @@ dynamic client registration when supported, PKCE, token exchange, and refresh.
 Tokens live in `~/.siwah/mcp-auth/<server>.json` mode 600, not in `mcp.json`.
 Use `--client-id`/`--client-secret-env` for a server that does not support
 dynamic registration.
+
+Agents can also read MCP resources and prompt templates through the
+`mcp_resources` tool (`list`, `read`) and the `mcp_prompts` tool (`list`,
+`get`). Resource and prompt lists are cached per daemon; `read` and `get`
+require the normal network permission and their content is untrusted data.
 
 ## `plugin`
 

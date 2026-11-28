@@ -3,6 +3,22 @@
 All notable public changes are recorded here. The format follows Keep a
 Changelog, and the project uses semantic versioning.
 
+## [1.2.0] — 2026-11-28
+
+### Added
+
+- Use language-server diagnostics, definitions, hover, and guarded rename tools.
+- Add skill scripts/references/templates with path checks and authoring lint.
+- Optionally review successful sessions in the background to capture lessons or skills.
+- Schedule local jobs with explicit workspaces, locks, timeouts, and allowance caps.
+- Summarize recall matches with the fast model while preserving source ids.
+- List and read MCP resources and prompt templates through agent tools.
+- Remove the TUI and optionally all local data with `siwah uninstall`, with a safe final package-removal step.
+
+### Changed
+
+- Check PyPI for uv tool updates and apply them with `uv tool upgrade siwah`.
+
 ## [1.1.0] — 2026-11-27
 
 ### Added

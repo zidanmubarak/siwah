@@ -109,6 +109,9 @@ class AgentConfig(BaseModel):
     web_timeout_s: float = 30.0
     max_retries: int = 2
     effort: Literal["minimal", "low", "medium", "high", "xhigh", "max"] | None = None
+    background_review: bool = False
+    background_review_min_steps: int = 10
+    background_review_role: Literal["main", "fast"] = "fast"
 
 
 class VerifyConfig(BaseModel):
@@ -181,6 +184,19 @@ class JobsConfig(BaseModel):
     tail_lines: int = 200
 
 
+class CronConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    # Automatic local schedules are opt-in because every run spends allowance.
+    enabled: bool = False
+    tick_seconds: int = Field(default=30, ge=5)
+    catch_up: bool = False
+    max_allowance: float = Field(default=0.5, gt=0, allow_inf_nan=False)
+    max_daily_allowance: float = Field(default=2.0, gt=0, allow_inf_nan=False)
+    timeout_s: float = Field(default=900.0, gt=0, allow_inf_nan=False)
+    max_steps: int = Field(default=30, ge=1)
+
+
 class EscalationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -222,6 +238,7 @@ class Config(BaseModel):
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
+    cron: CronConfig = Field(default_factory=CronConfig)
     escalation: EscalationConfig = Field(default_factory=EscalationConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
@@ -342,6 +359,10 @@ max_steps_ceiling = 300
 stall_limit = 8
 max_completion_nudges = 2
 self_check_min_steps = 12
+# Opt-in: review successful complex runs and write a lesson or skill.
+background_review = false
+background_review_min_steps = 10
+background_review_role = "fast"
 
 [verify]
 auto = true
@@ -391,6 +412,17 @@ max_depth = 1
 max_jobs = 8
 output_limit = 20000
 tail_lines = 200
+
+[cron]
+# Opt-in: the daemon runs due local jobs stored in ~/.siwah/harness/cron.json.
+# Jobs are read-only unless `siwah cron add --allow bash|write|network` grants more.
+enabled = false
+tick_seconds = 30
+catch_up = false
+max_allowance = 0.5
+max_daily_allowance = 2.0
+timeout_s = 900
+max_steps = 30
 
 [escalation]
 enabled = false

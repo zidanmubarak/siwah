@@ -9,6 +9,7 @@ TUI and run `/connect`, then `/models`.
 | Location | Purpose |
 |---|---|
 | `~/.siwah/harness/config.toml` | Main configuration |
+| `~/.siwah/src` | Editable git checkout created by the bootstrap installer (not used by `uv tool install`) |
 | `~/.siwah/auth.json` | Saved API keys |
 | `~/.siwah/chatgpt/auth.json` | Private ChatGPT plan account and token store |
 | `~/.siwah/config.toml` | Legacy location; migrated on first load if the harness file is absent |
@@ -16,6 +17,7 @@ TUI and run `/connect`, then `/models`.
 | `SIWAH_HOME` | Alternate root instead of `~/.siwah` |
 | `~/.siwah/harness/tui.json` | TUI theme and keybindings |
 | `~/.siwah/harness/mcp.json` | MCP servers |
+| `~/.siwah/harness/cron.json` | Local scheduled jobs and daily usage (gitignored) |
 | `~/.siwah/harness/hooks/*.json` | Hooks |
 | `~/.siwah/harness/skills/<name>/SKILL.md` | Global skills |
 | `~/.siwah/harness/subagents/*.md` | Global subagents |
@@ -26,6 +28,11 @@ TUI and run `/connect`, then `/models`.
 
 Project-local files under `<repo>/.siwah/` override global entries with the same
 name. `AGENTS.md` is read from the workspace and every parent directory.
+
+`siwah uninstall --keep-data` removes the downloaded TUI but keeps this whole
+tree and prints the final package-removal command. `siwah uninstall --purge`
+deletes the tree, including credentials, sessions, memory, and the bootstrap
+checkout. See the [CLI](CLI.md#uninstall) reference.
 
 Restart siwah after editing provider, role, server, or sandbox settings. The TUI
 can change the permission mode and reasoning effort at runtime; the daemon reads
@@ -470,7 +477,7 @@ cooldown_minutes = 60
 See [Evolution](EVOLUTION.md) for how these values are used and what is not
 guaranteed.
 
-## Subagents, jobs, escalation, and traces
+## Subagents, jobs, cron, escalation, and traces
 
 ```toml
 [subagents]
@@ -484,6 +491,15 @@ max_jobs = 8
 output_limit = 20000
 tail_lines = 200
 
+[cron]
+enabled = false
+tick_seconds = 30
+catch_up = false
+max_allowance = 0.5
+max_daily_allowance = 2.0
+timeout_s = 900
+max_steps = 30
+
 [escalation]
 enabled = false
 after_failures = 2
@@ -496,6 +512,13 @@ max_events = 2000
 
 - `subagents.max_depth = 1` means children cannot launch further children.
 - Jobs are process-local. They do not survive a daemon restart.
+- Cron jobs persist in `~/.siwah/harness/cron.json`; automatic execution is
+  opt-in through `[cron].enabled`. The daemon runs one job at a time with an
+  execution lock. `max_allowance` is the default per-job cap,
+  `max_daily_allowance` caps the total for the local day, and `timeout_s` bounds
+  the wall clock. `catch_up = false` skips runs missed while the daemon was
+  down instead of starting them all at once. Jobs are read-only unless they
+  were created with `--allow bash`, `--allow write`, or `--allow network`.
 - Escalation is opt-in and emits a visible event when it switches models.
 - Traces store per-step model, latency, token, allowance, and tool data. View
   them with `siwah trace <session-id>`.

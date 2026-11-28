@@ -7,7 +7,7 @@ Keep the public branch at the last published release. Develop and commit
 unreleased work in the private checkout, and sync/push the public repository
 only as part of a versioned release.
 
-The 1.1.0 release uses this order:
+The 1.2.0 release uses this order:
 
 1. source bootstrap (primary install);
 2. PyPI publication for package installs.
@@ -96,10 +96,10 @@ does not contain the TUI binary; verify `--ui plain` works without it.
 
 ```bash
 git add -A
-git commit -m "release: siwah 1.1.0"
-git tag -a v1.1.0 -m "siwah 1.1.0"
+git commit -m "release: siwah 1.2.0"
+git tag -a v1.2.0 -m "siwah 1.2.0"
 git push origin main
-git push origin v1.1.0
+git push origin v1.2.0
 ```
 
 The update checker reads the highest release tag matching `vX.Y.Z` and falls
@@ -140,16 +140,16 @@ keeps the full project history; the release workflow extracts the matching
 section with:
 
 ```bash
-python scripts/release_notes.py v1.1.0 > release-notes.md
+python scripts/release_notes.py v1.2.0 > release-notes.md
 ```
 
 Then create the release with that file, not the whole changelog:
 
 ```bash
-gh release create v1.1.0 \
-  --title "siwah 1.1.0" \
+gh release create v1.2.0 \
+  --title "siwah 1.2.0" \
   --notes-file release-notes.md \
-  dist/siwah-1.1.0-py3-none-any.whl \
+  dist/siwah-1.2.0-py3-none-any.whl \
   dist/siwah-tui-windows-amd64.exe \
   dist/siwah-tui-linux-x86_64 \
   dist/siwah-tui-darwin-arm64 \

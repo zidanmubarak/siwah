@@ -61,6 +61,9 @@ def test_harness_bootstrap_externalizes_the_prompt(tmp_path: Path, monkeypatch):
     assert (root / "tool_guidance" / "01-workflow.md").exists()
     assert (root / "tool_guidance" / "03-efficiency.md").exists()
     assert (root / "skills").is_dir()
+    ignore = (root / ".gitignore").read_text(encoding="utf-8")
+    assert "cron.json" in ignore
+    assert "cron.run.lock" in ignore
     if shutil.which("git"):
         assert (root / ".git").exists()
 

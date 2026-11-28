@@ -62,11 +62,19 @@ def _expected_checksum(sums: str, asset: str) -> str:
     raise TuiInstallError(f"SHA256SUMS does not contain {asset}")
 
 
-def ensure_tui_binary(*, version: str | None = None, force: bool = False) -> Path:
-    """Install the matching TUI binary under ``~/.siwah/bin`` and return it."""
+def ensure_tui_binary(
+    *, version: str | None = None, force: bool = False, staged: bool = False
+) -> Path:
+    """Install the matching TUI binary under ``~/.siwah/bin`` and return it.
+
+    ``staged`` writes ``<name>.next`` instead of replacing the active binary.
+    The launcher promotes it on the next start; this is required on Windows
+    while the current TUI is still running.
+    """
 
     ensure_home()
-    target = siwah_home().resolve() / "bin" / tui_binary_name()
+    name = tui_binary_name()
+    target = siwah_home().resolve() / "bin" / (f"{name}.next" if staged else name)
     if target.is_file() and not force:
         return target
     asset = release_asset_name()
